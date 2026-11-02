@@ -215,6 +215,56 @@ function line({ s, date, days }, withDue = true) {
   return t;
 }
 
+const PERIOD_SHORT = { monthly: '/міс', yearly: '/рік', weekly: '/тиж', once: ' разово' };
+const STATUS_GROUPS = [
+  ['active', 'Активні'],
+  ['cancelling', 'До скасування'],
+  ['paused', 'На паузі'],
+  ['cancelled', 'Скасовані'],
+];
+
+/** Повідомлення зі списком усіх підписок (розбите на частини ≤ 4000 символів) */
+export function allSubsMessages(record) {
+  const today = localToday(record.tz);
+  if (!record.subs.length) return ['Підписок ще немає. Додайте першу в застосунку ✨'];
+  const monthly = {}, yearly = {};
+  const blocks = [];
+  for (const [status, title] of STATUS_GROUPS) {
+    const subs = record.subs.filter(s => s.status === status);
+    if (!subs.length) continue;
+    const rows = subs
+      .map(s => ({ s, date: status === 'active' || status === 'cancelling' ? currentDate(s, today) : s.nextDate }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(({ s, date }) => {
+        if (status === 'active' || status === 'cancelling') {
+          const m = s.period === 'monthly' ? s.price : s.period === 'yearly' ? s.price / 12 : s.period === 'weekly' ? s.price * 52 / 12 : 0;
+          if (m) { monthly[s.currency] = (monthly[s.currency] || 0) + m; yearly[s.currency] = (yearly[s.currency] || 0) + m * 12; }
+        }
+        const days = daysBetween(today, date);
+        const when = status === 'paused' || status === 'cancelled' ? ''
+          : days >= 0 ? ` · ${fmtDate(date)} (${dueLabel(days)})` : ` · було ${fmtDate(date)}`;
+        let t = `• <b>${esc(s.name)}</b> — ${esc(money(s.price, s.currency))}${PERIOD_SHORT[s.period] || ''}${when}`;
+        if (s.note) t += `\n   <i>${esc(s.note)}</i>`;
+        return t;
+      });
+    blocks.push(`<b>${title} · ${subs.length}</b>\n${rows.join('\n')}`);
+  }
+  const sum = obj => Object.entries(obj).map(([c, v]) => money(Math.round(v * 100) / 100, c)).join(' + ');
+  const footer = Object.keys(monthly).length ? `💰 На місяць: <b>${esc(sum(monthly))}</b>\nНа рік: <b>${esc(sum(yearly))}</b>` : '';
+
+  // Склеюємо блоки в повідомлення до 4000 символів (ліміт Telegram — 4096)
+  const header = `📋 <b>Усі підписки · ${record.subs.length}</b>`;
+  const msgs = [];
+  let cur = header;
+  for (const piece of [...blocks.flatMap(b => b.split('\n• ').map((x, i) => (i ? '• ' + x : x))), footer].filter(Boolean)) {
+    const sep = piece.startsWith('• ') ? '\n' : '\n\n';
+    if ((cur + sep + piece).length > 4000) { msgs.push(cur); cur = piece; }
+    else cur += sep + piece;
+  }
+  msgs.push(cur);
+  return msgs;
+}
+
 /* ---------------- Telegram API ---------------- */
 async function tgApi(env, method, params) {
   const res = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
@@ -295,10 +345,19 @@ async function handleWebhook(request, env, ctx) {
         const sum = Object.entries(total).map(([c, v]) => money(v, c)).join(' + ');
         return reply(`<b>Найближчі 30 днів</b>\n\n${list.map(i => line(i)).join('\n')}\n\nРазом: <b>${esc(sum)}</b>`, { reply_markup: openButton(env) });
       }
-      if (cmd === '/start' || cmd === '/help' || cmd === '/open') {
-        return reply('Привіт! Я <b>subtrack</b> — трекер ваших підписок.\n\n• Кнопка нижче відкриває застосунок\n• /next — списання на найближчі 30 днів\n\nНагадування надходять самі в обрану годину.', { reply_markup: openButton(env) });
+      if (cmd === '/all' || cmd === '/list') {
+        const record = JSON.parse((await env.KV.get(`user:${userId}`)) || 'null');
+        if (!record) return reply('Даних ще немає. Відкрийте застосунок і вкажіть адресу сервера в «Опції → Нагадування».', { reply_markup: openButton(env) });
+        const parts = allSubsMessages(record);
+        for (let i = 0; i < parts.length; i++) {
+          await reply(parts[i], i === parts.length - 1 ? { reply_markup: openButton(env) } : {});
+        }
+        return;
       }
-      return reply('Команди: /next — найближчі списання, /start — відкрити застосунок.');
+      if (cmd === '/start' || cmd === '/help' || cmd === '/open') {
+        return reply('Привіт! Я <b>subtrack</b> — трекер ваших підписок.\n\n• Кнопка нижче відкриває застосунок\n• /all — усі підписки\n• /next — списання на найближчі 30 днів\n\nНагадування надходять самі в обрану годину.', { reply_markup: openButton(env) });
+      }
+      return reply('Команди:\n/all — усі підписки\n/next — найближчі списання\n/start — відкрити застосунок');
     } catch (e) { console.error(e); }
   })());
   return new Response('ok');
@@ -313,6 +372,7 @@ async function handleSetup(url, env) {
   const results = {};
   results.webhook = await tgApi(env, 'setWebhook', { url: hook, secret_token: env.WEBHOOK_SECRET, allowed_updates: ['message'], drop_pending_updates: true });
   results.commands = await tgApi(env, 'setMyCommands', { commands: [
+    { command: 'all', description: 'Усі підписки' },
     { command: 'next', description: 'Найближчі списання' },
     { command: 'start', description: 'Відкрити застосунок' },
   ] });
