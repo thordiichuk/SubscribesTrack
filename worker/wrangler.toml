@@ -1,0 +1,20 @@
+# Деплой через CLI (альтернатива онлайн-редактору Cloudflare):
+#   npm i -g wrangler && wrangler login
+#   wrangler kv namespace create KV        → вставте отриманий id нижче
+#   wrangler secret put BOT_TOKEN
+#   wrangler secret put WEBHOOK_SECRET
+#   wrangler deploy
+name = "subtrack-reminders"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+APP_URL = "https://thordiichuk.github.io/SubscribesTrack/"
+ALLOWED_USER_IDS = ""   # ваш Telegram ID, напр. "123456789"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[triggers]
+crons = ["0 * * * *"]   # щогодини; лист надсилається в обрану в застосунку годину

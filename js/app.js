@@ -214,6 +214,7 @@ function defaultSettings() {
     remindDays: 3,
     browserNotify: false,
     tg: { enabled: false, token: '', chatId: '' },
+    server: { url: '', hour: 9 },
     autoLockMin: 5,
   };
 }
@@ -225,6 +226,7 @@ function normalizeState(s) {
   const out = { ...base, ...(s || {}) };
   out.settings = { ...base.settings, ...(s?.settings || {}) };
   out.settings.tg = { ...base.settings.tg, ...(s?.settings?.tg || {}) };
+  out.settings.server = { ...base.settings.server, ...(s?.settings?.server || {}) };
   out.settings.rates = { ...base.settings.rates, ...(s?.settings?.rates || {}) };
   out.notified = out.notified || {};
   out.subs = Array.isArray(out.subs) ? out.subs.map(normalizeSub).filter(Boolean) : [];
@@ -291,6 +293,7 @@ function save() {
       if (written) {
         localStorage.setItem(LS_REV, String(Date.now()));
         cloudPushSoon();
+        serverSyncSoon();
       }
     } catch (e) {
       console.error(e);
@@ -910,6 +913,13 @@ function renderSettings() {
     : Notification.permission === 'denied' ? 'Сповіщення заблоковано в налаштуваннях браузера.'
       : Notification.permission === 'granted' ? 'Дозвіл надано.' : 'Потрібен дозвіл браузера.';
   $('#browserNotifyWrap').hidden = inTelegram; // у Telegram push-сповіщення браузера не працюють
+  $('#srvUrl').value = st.server.url || '';
+  $('#srvHour').value = st.server.hour;
+  const uidTg = inTelegram ? tg.initDataUnsafe?.user?.id : null;
+  $('#srvStatus').textContent = meta.srvStatus?.text
+    || (serverUrl() ? 'Ще не синхронізовано.' : 'Не підключено: нагадування надходять, лише коли застосунок відкрито.');
+  $('#srvStatus').style.color = meta.srvStatus && !meta.srvStatus.ok ? 'var(--danger)' : '';
+  $('#srvUserId').textContent = uidTg ? `Ваш Telegram ID: ${uidTg} (вкажіть його в ALLOWED_USER_IDS на сервері).` : '';
   $('#tgHint').textContent = inTelegram
     ? 'Chat ID заповнено автоматично. Вставте токен вашого бота (від @BotFather), і він надсилатиме нагадування в цей чат.'
     : 'Створіть бота в @BotFather і напишіть йому будь-що. Chat ID підкаже @userinfobot. Нагадування надсилаються, поки застосунок відкрито (перевірка щогодини).';
@@ -1042,7 +1052,8 @@ async function checkReminders(force = false) {
   if (!state) return;
   const st = state.settings;
   const canBrowser = st.browserNotify && 'Notification' in window && Notification.permission === 'granted';
-  const canTg = st.tg.enabled && st.tg.token && st.tg.chatId;
+  // Якщо підключено сервер нагадувань — бот пише сам, клієнт не дублює повідомлення
+  const canTg = st.tg.enabled && st.tg.token && st.tg.chatId && !serverUrl();
 
   // прибираємо старі записи
   const cutoff = toISO(addDays(today(), -60));
@@ -1091,6 +1102,61 @@ async function sendTelegram(text) {
   const json = await res.json().catch(() => ({}));
   if (!res.ok || !json.ok) throw new Error(json.description || `HTTP ${res.status}`);
   return json;
+}
+
+/* ---------------------------------------------------------
+   Сервер нагадувань (Cloudflare Worker, див. worker/worker.js)
+   Mini App надсилає туди список підписок; бот пише сам у потрібну годину.
+   --------------------------------------------------------- */
+const serverUrl = () => (state?.settings.server.url || '').trim().replace(/\/+$/, '');
+let serverTimer = null, lastServerPayload = null;
+
+function serverPayload() {
+  const st = state.settings;
+  return {
+    subs: state.subs.map(s => ({
+      id: s.id, name: s.name, price: s.price, currency: s.currency, period: s.period,
+      nextDate: s.nextDate, anchorDay: s.anchorDay, status: s.status, note: s.note, url: safeUrl(s.url),
+    })),
+    remindDays: Number(st.remindDays) || 0,
+    remindHour: Number(st.server.hour) || 0,
+    tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  };
+}
+
+function serverSyncSoon() {
+  if (!inTelegram || !serverUrl() || !state) return;
+  clearTimeout(serverTimer);
+  serverTimer = setTimeout(() => serverSync(), 2500);
+}
+
+async function serverSync(force = false) {
+  if (!state || !serverUrl()) return;
+  if (!inTelegram) { setServerStatus('Синхронізація з сервером працює лише в Telegram-застосунку.', false); return; }
+  const payload = serverPayload();
+  const key = JSON.stringify(payload);
+  if (!force && key === lastServerPayload) return;
+  try {
+    const res = await fetch(`${serverUrl()}/sync`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ initData: tg.initData, payload }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    lastServerPayload = key;
+    setServerStatus(`Синхронізовано о ${new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}. Підписок на сервері: ${data.count}.`, true);
+    return true;
+  } catch (e) {
+    setServerStatus('Помилка сервера: ' + e.message, false);
+    if (force) throw e;
+  }
+}
+
+function setServerStatus(text, ok) {
+  meta.srvStatus = { text, ok }; saveMeta();
+  const el = $('#srvStatus');
+  if (el) { el.textContent = text; el.style.color = ok ? '' : 'var(--danger)'; }
 }
 
 async function sendTelegramDocument(content, fileName) {
@@ -1425,6 +1491,23 @@ function bindEvents() {
     catch (e) { toast('' + e.message); }
   });
   $('#remindNow').addEventListener('click', () => checkReminders(true));
+  $('#srvUrl').addEventListener('change', e => {
+    let v = e.target.value.trim();
+    if (v && !/^https:\/\//.test(v)) v = 'https://' + v.replace(/^\w+:\/\//, '');
+    state.settings.server.url = v; e.target.value = v;
+    meta.srvStatus = null; lastServerPayload = null;
+    save(); renderSettings();
+    if (v) serverSync();
+  });
+  $('#srvHour').addEventListener('change', e => {
+    state.settings.server.hour = Math.min(23, Math.max(0, parseInt(e.target.value, 10) || 0));
+    save();
+  });
+  $('#srvSync').addEventListener('click', async () => {
+    if (!serverUrl()) return toast('Спершу вкажіть адресу сервера');
+    try { await serverSync(true); haptic.ok(); toast('Синхронізовано з сервером'); }
+    catch (e) { haptic.err(); toast('Сервер: ' + e.message); }
+  });
   $('#autoLock').addEventListener('change', e => {
     state.settings.autoLockMin = Math.min(240, Math.max(0, parseInt(e.target.value, 10) || 0));
     save(); resetIdle();

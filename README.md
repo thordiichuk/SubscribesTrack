@@ -26,6 +26,9 @@
 ├── css/styles.css        # стилі (теми через CSS-змінні)
 ├── js/app.js             # уся логіка застосунку
 ├── sw.js                 # Service Worker (офлайн, клік по сповіщенню)
+├── worker/               # сервер нагадувань для бота (Cloudflare Worker, необов'язково)
+│   ├── worker.js
+│   └── wrangler.toml
 ├── manifest.webmanifest  # PWA-маніфест
 ├── icons/                # icon.svg, icon-192.png, icon-512.png
 └── .nojekyll             # щоб GitHub Pages віддавав файли як є
@@ -76,7 +79,40 @@ python3 -m http.server 8080
 
 **Перенести дані з сайту в Telegram:** на сайті натисніть «Завантажити копію (JSON)», потім у Mini App — «Відновити з JSON» і оберіть цей файл.
 
-## Telegram-нагадування
+## Бот пише нагадування сам (Cloudflare Worker)
+
+Без сервера нагадування надходять, лише поки застосунок відкрито. Невеликий безкоштовний сервер на Cloudflare Workers (`worker/worker.js`) виправляє це:
+
+- щогодини перевіряє ваші підписки й у вибрану годину надсилає в бот **два нагадування**: за N днів до списання та в день списання, з кнопкою «Відкрити subtrack»;
+- бот відповідає на `/start` і `/next` (списання на найближчі 30 днів із сумою);
+- Mini App сам відправляє на сервер список підписок після кожної зміни. Запити перевіряються підписом Telegram (`initData`), а `ALLOWED_USER_IDS` обмежує доступ лише вами.
+
+Безкоштовного тарифу Cloudflare вистачає з великим запасом.
+
+### Налаштування в онлайн-редакторі (≈10 хв, зручніше з ПК)
+1. Зареєструйтеся на **dash.cloudflare.com**.
+2. **Storage & Databases → KV → Create** — назва `subtrack`.
+3. **Compute (Workers) → Workers & Pages → Create → Start with Hello World** — назва `subtrack-reminders` → **Deploy**.
+4. **Edit code** → замініть увесь код вмістом файлу [`worker/worker.js`](worker/worker.js) → **Deploy**.
+5. У воркері відкрийте **Settings → Bindings → Add → KV namespace**: змінна `KV`, сховище `subtrack`.
+6. **Settings → Variables and Secrets → Add**:
+   | Назва | Тип | Значення |
+   |---|---|---|
+   | `BOT_TOKEN` | Secret | токен бота від @BotFather |
+   | `WEBHOOK_SECRET` | Secret | будь-який випадковий рядок з латиниці й цифр, напр. `k8Jd02nXqP3` |
+   | `APP_URL` | Text | `https://thordiichuk.github.io/SubscribesTrack/` |
+   | `ALLOWED_USER_IDS` | Text | ваш Telegram ID (показано в застосунку: Опції → Нагадування) |
+7. **Settings → Trigger Events → Add → Cron Triggers** → `0 * * * *` (щогодини).
+8. Відкрийте в браузері `https://subtrack-reminders.<ваш-субдомен>.workers.dev/setup?key=<WEBHOOK_SECRET>`. Має з'явитися `"ok": true`: вебхук і команди бота налаштовано.
+9. У боті: **Опції → Нагадування → Адреса сервера** — вставте `https://subtrack-reminders.<ваш-субдомен>.workers.dev`, оберіть годину та натисніть «Синхронізувати зараз».
+
+Перевірка: напишіть боту `/next`. Щоб надіслати нагадування негайно, не чекаючи години, відкрийте `/setup?key=<WEBHOOK_SECRET>&test=1`.
+
+Через CLI: див. коментарі в [`worker/wrangler.toml`](worker/wrangler.toml).
+
+> **Приватність.** На сервер передаються назви, ціни, дати й примітки підписок (без PIN і без шифрування), щоб він міг складати нагадування. Вони зберігаються лише у вашому KV-сховищі Cloudflare. Видалити їх можна, очистивши адресу сервера та KV-запис `user:<ваш ID>`.
+
+## Telegram-нагадування з застосунку (без сервера)
 1. У Telegram напишіть **@BotFather**, надішліть `/newbot` і скопіюйте **Bot Token**.
 2. Надішліть своєму боту будь-яке повідомлення (інакше він не зможе вам писати).
 3. Дізнайтеся свій **Chat ID** у **@userinfobot**.

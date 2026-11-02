@@ -172,6 +172,21 @@
               <button id="remindNow" class="btn btn-ghost">Перевірити зараз</button>
             </div>
             <p id="tgHint" class="muted small"></p>
+            <hr>
+            <div class="eyebrow" style="margin-bottom:10px">Автоматичні нагадування від бота</div>
+            <label class="field">
+              <span>Адреса сервера (Cloudflare Worker)</span>
+              <input id="srvUrl" type="url" inputmode="url" class="input" placeholder="https://subtrack-reminders.….workers.dev" autocomplete="off">
+            </label>
+            <label class="field">
+              <span>Година надсилання (0–23, ваш часовий пояс)</span>
+              <input id="srvHour" type="number" min="0" max="23" class="input">
+            </label>
+            <div class="row">
+              <button id="srvSync" class="btn">Синхронізувати зараз</button>
+            </div>
+            <p id="srvStatus" class="muted small"></p>
+            <p id="srvUserId" class="muted small"></p>
           </div>
 
           <div class="set-group">
