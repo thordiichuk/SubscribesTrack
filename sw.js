@@ -1,6 +1,6 @@
 /* subtrack Service Worker: офлайн-кеш оболонки застосунку + клік по сповіщенню.
    Після змін у файлах збільшіть VERSION, щоб клієнти отримали оновлення. */
-const VERSION = 'substrack-v2';
+const VERSION = 'substrack-v3';
 const SHELL = ['./', 'index.html', 'css/styles.css', 'js/app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {

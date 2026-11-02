@@ -12,7 +12,7 @@
   --ink: #151514;
   --ink-2: #57554f;
   --muted: #9a978e;
-  --accent: #c8f04a;
+  --accent: #bcdcf7;
   --accent-ink: #151514;
   --danger: #e5484d;
   --warn: #d48a00;
@@ -29,7 +29,7 @@
   --ink: #eeede8;
   --ink-2: #b4b2aa;
   --muted: #74726b;
-  --accent: #c8f04a;
+  --accent: #a8cdf0;
   --accent-ink: #151514;
   --danger: #ff6b6b;
   --warn: #f2b035;
@@ -336,7 +336,6 @@ input[type=date].input { min-width: 0; }
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
 .toast button { border: 0; background: transparent; color: var(--accent); font-weight: 600; padding: 2px 0; }
-:root[data-theme="dark"] .toast button { color: var(--ok); }
 
 /* =========================================================
    Планшет / ПК
