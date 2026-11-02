@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="uk" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>SubsTrack — трекер підписок</title>
+  <meta name="description" content="Особистий трекер і календар підписок та регулярних платежів">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <script>
+    // Застосовуємо тему до першого рендера, щоб не було "блимання"
+    try { var m = JSON.parse(localStorage.getItem('subtrack.meta.v1') || '{}'); if (m.theme) document.documentElement.dataset.theme = m.theme; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- ============ Екран блокування ============ -->
+  <section id="lockScreen" class="lock" hidden>
+    <form id="lockForm" class="lock-card" autocomplete="off">
+      <div class="lock-logo">🔐</div>
+      <h1>SubsTrack</h1>
+      <p class="muted">Введіть PIN-код або пароль</p>
+      <input id="lockInput" type="password" class="input input-lg" placeholder="••••" autocomplete="current-password" required minlength="4">
+      <p id="lockError" class="error" aria-live="polite"></p>
+      <button class="btn btn-primary btn-lg btn-block" type="submit">Розблокувати</button>
+      <button id="lockForgot" class="btn btn-ghost btn-sm" type="button">Забули PIN?</button>
+    </form>
+  </section>
+
+  <!-- ============ Застосунок ============ -->
+  <div id="app" hidden>
+    <header class="topbar">
+      <div class="brand"><span class="brand-logo">◎</span> SubsTrack</div>
+      <nav class="tabs" aria-label="Розділи">
+        <button class="tab" data-view="list">Підписки</button>
+        <button class="tab" data-view="calendar">Календар</button>
+        <button class="tab" data-view="stats">Статистика</button>
+        <button class="tab" data-view="settings">Налаштування</button>
+      </nav>
+      <div class="topbar-actions">
+        <button id="themeToggle" class="icon-btn" title="Змінити тему" aria-label="Змінити тему">🌙</button>
+        <button id="lockNow" class="icon-btn" title="Заблокувати" aria-label="Заблокувати" hidden>🔒</button>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- Підсумок -->
+      <section id="summary" class="summary"></section>
+
+      <!-- ===== Список ===== -->
+      <section id="view-list" class="view">
+        <div id="alertBanner" class="alert" hidden></div>
+        <div class="toolbar">
+          <input id="searchInput" type="search" class="input" placeholder="🔍 Пошук за назвою або приміткою">
+          <div class="toolbar-row">
+            <select id="statusFilter" class="input">
+              <option value="all">Усі статуси</option>
+              <option value="notcancelled">Крім скасованих</option>
+              <option value="active">Активні</option>
+              <option value="paused">На паузі</option>
+              <option value="cancelling">До скасування</option>
+              <option value="cancelled">Скасовані</option>
+            </select>
+            <select id="sortSelect" class="input">
+              <option value="date-asc">Дата: найближчі</option>
+              <option value="date-desc">Дата: найпізніші</option>
+              <option value="price-desc">Ціна: дорожчі</option>
+              <option value="price-asc">Ціна: дешевші</option>
+              <option value="name">Назва А→Я</option>
+            </select>
+          </div>
+          <div id="categoryChips" class="chips"></div>
+        </div>
+        <div id="subList" class="sub-list"></div>
+      </section>
+
+      <!-- ===== Календар ===== -->
+      <section id="view-calendar" class="view" hidden>
+        <div class="cal-header">
+          <button id="calPrev" class="icon-btn" aria-label="Попередній місяць">‹</button>
+          <div class="cal-title">
+            <h2 id="calTitle"></h2>
+            <div id="calTotal" class="muted small"></div>
+          </div>
+          <button id="calNext" class="icon-btn" aria-label="Наступний місяць">›</button>
+        </div>
+        <button id="calToday" class="btn btn-ghost btn-sm cal-today">Сьогодні</button>
+        <div class="cal-grid cal-weekdays"></div>
+        <div id="calGrid" class="cal-grid"></div>
+        <div id="calDay" class="cal-day"></div>
+      </section>
+
+      <!-- ===== Статистика ===== -->
+      <section id="view-stats" class="view" hidden>
+        <div id="statsContent"></div>
+      </section>
+
+      <!-- ===== Налаштування ===== -->
+      <section id="view-settings" class="view" hidden>
+        <div class="settings">
+
+          <div class="card">
+            <h3>🎨 Вигляд</h3>
+            <div class="segmented" id="themeSeg">
+              <button data-theme-set="dark">🌙 Темна</button>
+              <button data-theme-set="light">☀️ Світла</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>💱 Валюта та курси</h3>
+            <label class="field">
+              <span>Основна валюта (для підсумків)</span>
+              <select id="baseCurrency" class="input"></select>
+            </label>
+            <div id="ratesList" class="rates"></div>
+            <div class="row">
+              <button id="fetchRates" class="btn btn-secondary">↻ Оновити курси онлайн</button>
+              <span id="ratesInfo" class="muted small"></span>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>🔔 Нагадування</h3>
+            <label class="field">
+              <span>Нагадувати за (днів до списання)</span>
+              <input id="remindDays" type="number" min="0" max="30" class="input">
+            </label>
+            <label class="switch-row">
+              <span>Push-сповіщення браузера</span>
+              <input id="browserNotify" type="checkbox" class="switch">
+            </label>
+            <p id="notifyStatus" class="muted small"></p>
+            <hr>
+            <label class="switch-row">
+              <span>Telegram-бот</span>
+              <input id="tgEnabled" type="checkbox" class="switch">
+            </label>
+            <label class="field">
+              <span>Bot Token</span>
+              <input id="tgToken" type="password" class="input" placeholder="123456789:AA..." autocomplete="off">
+            </label>
+            <label class="field">
+              <span>Chat ID</span>
+              <input id="tgChat" type="text" class="input" placeholder="123456789" autocomplete="off">
+            </label>
+            <div class="row">
+              <button id="tgTest" class="btn btn-secondary">Надіслати тест</button>
+              <button id="remindNow" class="btn btn-ghost">Перевірити зараз</button>
+            </div>
+            <p class="muted small">Створіть бота у <b>@BotFather</b>, надішліть йому будь-яке повідомлення, а Chat ID дізнайтеся у <b>@userinfobot</b>. Нагадування надсилаються, коли застосунок відкрито (перевірка щогодини).</p>
+          </div>
+
+          <div class="card">
+            <h3>🔐 Безпека</h3>
+            <p id="pinStatus" class="muted"></p>
+            <div class="row">
+              <button id="pinSet" class="btn btn-primary">Встановити PIN</button>
+              <button id="pinDisable" class="btn btn-danger-ghost">Вимкнути PIN</button>
+            </div>
+            <label class="field">
+              <span>Автоблокування після бездіяльності (хв, 0 — вимкнено)</span>
+              <input id="autoLock" type="number" min="0" max="240" class="input">
+            </label>
+            <p class="muted small">Коли PIN увімкнено, усі дані у сховищі браузера шифруються (AES-GCM 256, ключ з PIN через PBKDF2). Без PIN відновити їх неможливо — робіть резервні копії.</p>
+          </div>
+
+          <div class="card">
+            <h3>💾 Дані</h3>
+            <div class="row">
+              <button id="exportBtn" class="btn btn-secondary">⬇ Завантажити резервну копію (JSON)</button>
+              <label class="btn btn-secondary">
+                ⬆ Відновити з JSON
+                <input id="importInput" type="file" accept="application/json,.json" hidden>
+              </label>
+            </div>
+            <div class="row">
+              <button id="demoBtn" class="btn btn-ghost">Додати демо-дані</button>
+              <button id="wipeBtn" class="btn btn-danger-ghost">Видалити всі дані</button>
+            </div>
+          </div>
+
+          <p class="muted small center">SubsTrack · дані зберігаються лише у цьому браузері</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- Кнопка швидкого додавання -->
+    <button id="fab" class="fab" aria-label="Додати підписку"><span>＋</span><b>Додати</b></button>
+
+    <!-- Нижня навігація (мобільна) -->
+    <nav class="bottom-nav" aria-label="Розділи">
+      <button class="tab" data-view="list"><i>📋</i><span>Список</span></button>
+      <button class="tab" data-view="calendar"><i>📅</i><span>Календар</span></button>
+      <button class="tab" data-view="stats"><i>📊</i><span>Витрати</span></button>
+      <button class="tab" data-view="settings"><i>⚙️</i><span>Опції</span></button>
+    </nav>
+  </div>
+
+  <!-- ============ Форма підписки ============ -->
+  <dialog id="subDialog" class="dialog">
+    <form id="subForm" novalidate>
+      <header class="dialog-head">
+        <h2 id="subDialogTitle">Нова підписка</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Закрити">✕</button>
+      </header>
+      <div class="dialog-body">
+        <label class="field">
+          <span>Назва сервісу *</span>
+          <input name="name" class="input" required maxlength="80" placeholder="Netflix, Spotify, iCloud…" list="nameSuggestions">
+          <datalist id="nameSuggestions">
+            <option>Netflix</option><option>Spotify</option><option>YouTube Premium</option><option>iCloud+</option>
+            <option>Google One</option><option>ChatGPT Plus</option><option>Claude Pro</option><option>Disney+</option>
+            <option>HBO Max</option><option>Apple Music</option><option>Microsoft 365</option><option>Adobe CC</option>
+            <option>Інтернет</option><option>Мобільний зв'язок</option><option>Оренда</option><option>Спортзал</option>
+          </datalist>
+        </label>
+        <label class="field">
+          <span>Посилання (сайт / сторінка скасування)</span>
+          <input name="url" class="input" type="url" inputmode="url" placeholder="https://…">
+        </label>
+        <div class="grid-2">
+          <label class="field">
+            <span>Ціна *</span>
+            <input name="price" class="input" type="number" inputmode="decimal" step="0.01" min="0" required placeholder="0.00">
+          </label>
+          <label class="field">
+            <span>Валюта</span>
+            <select name="currency" class="input"></select>
+          </label>
+        </div>
+        <div class="grid-2">
+          <label class="field">
+            <span>Періодичність</span>
+            <select name="period" class="input">
+              <option value="monthly">Щомісяця</option>
+              <option value="yearly">Щороку</option>
+              <option value="weekly">Щотижня</option>
+              <option value="once">Одноразово</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Наступне списання *</span>
+            <input name="nextDate" class="input" type="date" required>
+          </label>
+        </div>
+        <div class="grid-2">
+          <label class="field">
+            <span>Категорія</span>
+            <select name="category" class="input"></select>
+          </label>
+          <label class="field">
+            <span>Статус</span>
+            <select name="status" class="input"></select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Примітка</span>
+          <textarea name="note" class="input" rows="2" maxlength="500" placeholder="Спільний акаунт, скасувати до 15 числа, картка Visa…"></textarea>
+        </label>
+        <p id="formError" class="error"></p>
+      </div>
+      <footer class="dialog-foot">
+        <button type="button" id="subDelete" class="btn btn-danger-ghost" hidden>Видалити</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close>Скасувати</button>
+        <button type="submit" class="btn btn-primary">Зберегти</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- ============ Діалог PIN ============ -->
+  <dialog id="pinDialog" class="dialog dialog-sm">
+    <form id="pinForm" autocomplete="off">
+      <header class="dialog-head">
+        <h2 id="pinDialogTitle">PIN-код</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Закрити">✕</button>
+      </header>
+      <div class="dialog-body">
+        <label class="field" id="pinCurrentWrap">
+          <span>Поточний PIN</span>
+          <input id="pinCurrent" type="password" class="input" autocomplete="current-password">
+        </label>
+        <div id="pinNewWrap">
+          <label class="field">
+            <span>Новий PIN / пароль (мін. 4 символи)</span>
+            <input id="pinNew" type="password" class="input" autocomplete="new-password">
+          </label>
+          <label class="field">
+            <span>Повторіть</span>
+            <input id="pinNew2" type="password" class="input" autocomplete="new-password">
+          </label>
+        </div>
+        <p id="pinError" class="error"></p>
+      </div>
+      <footer class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close>Скасувати</button>
+        <button type="submit" class="btn btn-primary">Підтвердити</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
