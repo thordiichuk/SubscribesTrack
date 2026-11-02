@@ -282,10 +282,15 @@ function save() {
   const snapshot = JSON.parse(JSON.stringify(state));
   saveChain = saveChain.then(async () => {
     try {
+      let written = true;
       if (meta.lock && cryptoKey) {
         localStorage.setItem(LS_DATA, JSON.stringify(await encryptJSON(snapshot, cryptoKey)));
       } else if (!meta.lock) {
         localStorage.setItem(LS_DATA, JSON.stringify(snapshot));
+      } else written = false;
+      if (written) {
+        localStorage.setItem(LS_REV, String(Date.now()));
+        cloudPushSoon();
       }
     } catch (e) {
       console.error(e);
@@ -296,10 +301,159 @@ function save() {
 }
 
 /* ---------------------------------------------------------
+   Telegram Mini App
+   Коли сторінку відкрито всередині Telegram (через кнопку меню бота),
+   застосунок підлаштовується: тема Telegram, кнопка «Назад», вібровідгук,
+   нативні діалоги, синхронізація даних через Telegram CloudStorage.
+   У звичайному браузері все це просто вимкнено.
+   --------------------------------------------------------- */
+const tg = window.Telegram?.WebApp;
+const inTelegram = !!(tg && tg.initData);
+const tgAtLeast = v => inTelegram && typeof tg.isVersionAtLeast === 'function' && tg.isVersionAtLeast(v);
+
+const haptic = {
+  tap: () => { try { tgAtLeast('6.1') && tg.HapticFeedback.impactOccurred('light'); } catch {} },
+  select: () => { try { tgAtLeast('6.1') && tg.HapticFeedback.selectionChanged(); } catch {} },
+  ok: () => { try { tgAtLeast('6.1') && tg.HapticFeedback.notificationOccurred('success'); } catch {} },
+  err: () => { try { tgAtLeast('6.1') && tg.HapticFeedback.notificationOccurred('error'); } catch {} },
+};
+
+/** Підтвердження: нативне вікно Telegram або звичайний confirm() */
+function ask(message) {
+  if (tgAtLeast('6.2')) {
+    return new Promise(res => { try { tg.showConfirm(message.slice(0, 256), ok => res(!!ok)); } catch { res(confirm(message)); } });
+  }
+  return Promise.resolve(confirm(message));
+}
+
+/** Вибір з кількох варіантів. buttons: [{id, text, danger?}] → id або null */
+function choose(message, buttons) {
+  if (tgAtLeast('6.2')) {
+    return new Promise(res => {
+      try {
+        tg.showPopup({
+          message: message.slice(0, 256),
+          buttons: [...buttons.map(b => ({ id: b.id, type: b.danger ? 'destructive' : 'default', text: b.text })), { type: 'cancel' }],
+        }, id => res(id || null));
+      } catch { res(null); }
+    });
+  }
+  // Браузер: перша кнопка — OK, друга — «Скасувати» у confirm()
+  const text = `${message}\n\nОК — ${buttons[0].text}\nСкасувати — ${buttons[1].text}`;
+  return Promise.resolve(confirm(text) ? buttons[0].id : buttons[1].id);
+}
+
+function openExternal(url) {
+  if (!url) return;
+  if (inTelegram) tg.openLink(url);
+  else window.open(url, '_blank', 'noopener');
+}
+
+/* ---------- CloudStorage: дані в акаунті Telegram (синхронізація між пристроями) ---------- */
+const LS_REV = 'subtrack.rev.v1';
+const CLOUD_CHUNK = 4000; // ліміт значення — 4096 символів
+const cloud = {
+  ok: () => tgAtLeast('6.9') && !!tg.CloudStorage,
+  call: (method, ...args) => new Promise((res, rej) => {
+    try { tg.CloudStorage[method](...args, (err, val) => (err ? rej(new Error(err)) : res(val))); } catch (e) { rej(e); }
+  }),
+  get: keys => cloud.call('getItems', keys),
+  set: (k, v) => cloud.call('setItem', k, v),
+  remove: keys => cloud.call('removeItems', keys),
+};
+const chunkKeys = (from, to) => Array.from({ length: Math.max(0, to - from) }, (_, i) => `d${from + i}`);
+
+/** Якщо в хмарі новіша версія — підставляє її в localStorage. */
+async function cloudPull() {
+  if (!cloud.ok()) return;
+  const { sync } = await cloud.get(['sync']);
+  if (!sync) { if (localStorage.getItem(LS_DATA)) cloudPushSoon(); return; }
+  const info = JSON.parse(sync); // { n, rev, lock }
+  const localRev = Number(localStorage.getItem(LS_REV) || 0);
+  if (info.rev <= localRev) { if (info.rev < localRev) cloudPushSoon(); return; }
+  const vals = await cloud.get(chunkKeys(0, info.n));
+  const raw = chunkKeys(0, info.n).map(k => vals[k] || '').join('');
+  JSON.parse(raw); // перевірка цілісності
+  localStorage.setItem(LS_DATA, raw);
+  localStorage.setItem(LS_REV, String(info.rev));
+  meta.lock = info.lock || null;
+  saveMeta();
+}
+
+let cloudTimer = null;
+function cloudPushSoon() {
+  if (!cloud.ok()) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(cloudPush, 800);
+}
+async function cloudPush() {
+  await saveChain;
+  const raw = localStorage.getItem(LS_DATA);
+  if (!raw) return;
+  const rev = Number(localStorage.getItem(LS_REV) || Date.now());
+  const n = Math.ceil(raw.length / CLOUD_CHUNK);
+  try {
+    const prev = JSON.parse((await cloud.get(['sync'])).sync || '{}');
+    await Promise.all(chunkKeys(0, n).map((k, i) => cloud.set(k, raw.slice(i * CLOUD_CHUNK, (i + 1) * CLOUD_CHUNK))));
+    await cloud.set('sync', JSON.stringify({ n, rev, lock: meta.lock || null }));
+    if (prev.n > n) await cloud.remove(chunkKeys(n, prev.n));
+  } catch (e) {
+    console.warn('CloudStorage:', e);
+  }
+}
+
+function syncTelegramColors() {
+  if (!inTelegram) return;
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  try {
+    if (tgAtLeast('6.1')) { tg.setHeaderColor(bg); tg.setBackgroundColor(bg); }
+    if (tgAtLeast('7.10')) tg.setBottomBarColor(bg);
+  } catch {}
+}
+
+function updateBackButton() {
+  if (!tgAtLeast('6.1')) return;
+  const show = !!$('dialog[open]') || (!!state && !$('#app').hidden && meta.view !== 'list');
+  show ? tg.BackButton.show() : tg.BackButton.hide();
+}
+
+async function tgInit() {
+  if (!inTelegram) return;
+  document.documentElement.classList.add('in-telegram');
+  tg.ready();
+  tg.expand();
+  if (tgAtLeast('7.7')) tg.disableVerticalSwipes(); // щоб прокрутка не закривала застосунок
+  if (!meta.themeExplicit) meta.theme = tg.colorScheme === 'dark' ? 'dark' : 'light';
+  tg.onEvent('themeChanged', () => {
+    if (!meta.themeExplicit) { meta.theme = tg.colorScheme === 'dark' ? 'dark' : 'light'; applyTheme(); }
+  });
+  if (tgAtLeast('6.1')) {
+    tg.BackButton.onClick(() => {
+      const d = $('dialog[open]');
+      if (d) d.close();
+      else setView('list');
+    });
+  }
+  // Підтягуємо дані з хмари Telegram (не довше 4 с, щоб не блокувати запуск)
+  try {
+    await Promise.race([cloudPull(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000))]);
+  } catch (e) { console.warn('CloudStorage pull:', e); }
+}
+
+function tgAfterStart() {
+  if (!inTelegram) return;
+  // Chat ID для нагадувань — це ID користувача, який відкрив бота
+  const uidTg = tg.initDataUnsafe?.user?.id;
+  if (uidTg && !state.settings.tg.chatId) { state.settings.tg.chatId = String(uidTg); save(); }
+  updateBackButton();
+}
+
+/* ---------------------------------------------------------
    Запуск
    --------------------------------------------------------- */
 async function boot() {
   meta = loadMeta();
+  await tgInit();
   applyTheme();
   registerSW();
 
@@ -315,7 +469,7 @@ async function boot() {
   try { raw = JSON.parse(localStorage.getItem(LS_DATA) || 'null'); } catch { raw = null; }
   if (raw?.enc) {
     // Дані зашифровані, але метадані втрачені — відновити неможливо
-    if (confirm('Знайдено зашифровані дані, але параметри PIN втрачено. Почати з чистого аркуша?')) raw = null;
+    if (await ask('Знайдено зашифровані дані, але параметри PIN втрачено. Почати з чистого аркуша?')) raw = null;
     else return;
   }
   state = normalizeState(raw);
@@ -332,6 +486,7 @@ function startApp() {
   renderAll();
   scheduleReminders();
   resetIdle();
+  tgAfterStart();
 }
 
 /** Переносить минулі дати повторюваних підписок на наступне майбутнє списання */
@@ -361,6 +516,7 @@ function showLock() {
   input.value = '';
   setTimeout(() => input.focus(), 50);
   clearInterval(reminderTimer);
+  updateBackButton();
 }
 
 async function tryUnlock(pin) {
@@ -386,6 +542,7 @@ async function tryUnlock(pin) {
     meta.failed = (meta.failed || 0) + 1;
     if (meta.failed >= MAX_ATTEMPTS) { meta.lockUntil = Date.now() + LOCKOUT_MS; meta.failed = 0; }
     saveMeta();
+    haptic.err();
     $('#lockError').textContent = 'Невірний PIN';
     $('#lockInput').select();
   } finally {
@@ -418,12 +575,15 @@ function applyTheme() {
   const t = $('#themeToggle');
   if (t) t.innerHTML = theme === 'light' ? ICON_MOON : ICON_SUN;
   $$('#themeSeg button').forEach(b => b.classList.toggle('active', b.dataset.themeSet === theme));
+  syncTelegramColors();
 }
 function setTheme(theme) { meta.theme = theme; meta.themeExplicit = true; saveMeta(); applyTheme(); }
 
 function setView(view) {
   if (!['list', 'calendar', 'stats', 'settings'].includes(view)) view = 'list';
+  if (meta.view !== view) haptic.select();
   meta.view = view; saveMeta();
+  updateBackButton();
   $$('.view').forEach(v => { v.hidden = v.id !== `view-${view}`; });
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
   $('#summary').hidden = view === 'settings' || view === 'stats';
@@ -749,6 +909,11 @@ function renderSettings() {
     ? 'Цей браузер не підтримує сповіщення.'
     : Notification.permission === 'denied' ? 'Сповіщення заблоковано в налаштуваннях браузера.'
       : Notification.permission === 'granted' ? 'Дозвіл надано.' : 'Потрібен дозвіл браузера.';
+  $('#browserNotifyWrap').hidden = inTelegram; // у Telegram push-сповіщення браузера не працюють
+  $('#tgHint').textContent = inTelegram
+    ? 'Chat ID заповнено автоматично. Вставте токен вашого бота (від @BotFather), і він надсилатиме нагадування в цей чат.'
+    : 'Створіть бота в @BotFather і напишіть йому будь-що. Chat ID підкаже @userinfobot. Нагадування надсилаються, поки застосунок відкрито (перевірка щогодини).';
+  $('#exportBtn').textContent = inTelegram ? 'Надіслати копію в чат' : 'Завантажити копію (JSON)';
   $('#tgEnabled').checked = !!st.tg.enabled;
   $('#tgToken').value = st.tg.token || '';
   $('#tgChat').value = st.tg.chatId || '';
@@ -791,6 +956,7 @@ function openSubForm(id = null, preset = {}) {
   form.status.value = v.status;
   form.note.value = v.note;
   $('#subDialog').showModal();
+  updateBackButton();
   if (!sub) setTimeout(() => form.name.focus(), 60);
 }
 
@@ -825,6 +991,7 @@ function submitSubForm(e) {
   }
   rollForward();
   save();
+  haptic.ok();
   $('#subDialog').close();
   renderAll();
   checkReminders();
@@ -926,6 +1093,18 @@ async function sendTelegram(text) {
   return json;
 }
 
+async function sendTelegramDocument(content, fileName) {
+  const { token, chatId } = state.settings.tg;
+  if (!/^\d+:[\w-]+$/.test(token)) throw new Error('некоректний Bot Token');
+  const form = new FormData(); // multipart — теж "простий" CORS-запит
+  form.append('chat_id', chatId);
+  form.append('caption', `subtrack · резервна копія ${fmtDate(toISO(today()), true)}`);
+  form.append('document', new Blob([content], { type: 'application/json' }), fileName);
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: 'POST', body: form });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.ok) throw new Error(json.description || `HTTP ${res.status}`);
+}
+
 /* ---------------------------------------------------------
    Курси валют
    --------------------------------------------------------- */
@@ -975,6 +1154,7 @@ function openPinDialog(mode) {
   ['#pinCurrent', '#pinNew', '#pinNew2'].forEach(s => { $(s).value = ''; });
   $('#pinError').textContent = '';
   $('#pinDialog').showModal();
+  updateBackButton();
   setTimeout(() => (mode === 'set' ? $('#pinNew') : $('#pinCurrent')).focus(), 60);
 }
 
@@ -999,7 +1179,7 @@ async function submitPin(e) {
     if (!(await verifyCurrentPin(cur))) { err.textContent = 'Невірний поточний PIN'; return; }
   }
   if (pinMode === 'disable') {
-    if (!confirm('Вимкнути PIN? Дані зберігатимуться у відкритому вигляді.')) return;
+    if (!(await ask('Вимкнути PIN? Дані зберігатимуться у відкритому вигляді.'))) return;
     meta.lock = null; cryptoKey = null; saveMeta();
     await save();
     $('#pinDialog').close();
@@ -1032,15 +1212,27 @@ async function submitPin(e) {
 /* ---------------------------------------------------------
    Експорт / імпорт
    --------------------------------------------------------- */
-function exportJSON() {
+async function exportJSON() {
   const payload = {
     app: 'subtrack', version: 1, exportedAt: new Date().toISOString(),
     data: { ...state, notified: {} },
   };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const json = JSON.stringify(payload, null, 2);
+  const fileName = `substrack-backup-${toISO(today())}.json`;
+  if (inTelegram) {
+    // У Telegram завантаження файлів з blob не працює: надсилаємо файл у чат через бота
+    const { token, chatId } = state.settings.tg;
+    if (token && chatId) {
+      try { await sendTelegramDocument(json, fileName); haptic.ok(); return toast('Копію надіслано в чат з ботом'); }
+      catch (e) { toast('Telegram: ' + e.message); }
+    }
+    try { await navigator.clipboard.writeText(json); return toast('JSON скопійовано в буфер обміну'); }
+    catch { if (!token) return toast('Додайте токен бота в «Нагадування», щоб отримувати копії в чат'); }
+  }
+  const blob = new Blob([json], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `substrack-backup-${toISO(today())}.json`;
+  a.download = fileName;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   toast('Резервну копію завантажено');
@@ -1052,7 +1244,10 @@ async function importJSON(file) {
     const data = json?.data || json; // підтримка "голого" формату
     if (!Array.isArray(data?.subs)) throw new Error('невідомий формат файлу');
     const n = data.subs.length;
-    const replace = confirm(`У файлі ${n} ${plural(n, 'підписка', 'підписки', 'підписок')}.\n\nОК — замінити всі поточні дані\nСкасувати — додати до наявних`);
+    const mode = await choose(`У файлі ${n} ${plural(n, 'підписка', 'підписки', 'підписок')}. Що зробити з поточними даними?`,
+      [{ id: 'replace', text: 'Замінити', danger: true }, { id: 'merge', text: 'Додати до наявних' }]);
+    if (!mode) return;
+    const replace = mode === 'replace';
     const incoming = normalizeState(data);
     if (replace) {
       state = incoming;
@@ -1138,10 +1333,12 @@ function bindEvents() {
     const sub = state.subs.find(s => s.id === id);
     if (!sub) return;
     switch (action) {
-      case 'open': return; // звичайне посилання
+      case 'open':
+        if (inTelegram) { e.preventDefault(); openExternal(actionEl.href); }
+        return;
       case 'quickcancel': {
-        const url = safeUrl(sub.url);
-        if (url) window.open(url, '_blank', 'noopener');
+        haptic.tap();
+        openExternal(safeUrl(sub.url));
         return setStatus(id, 'cancelled', `«${sub.name}» позначено як скасовану`);
       }
       case 'pause': return setStatus(id, 'paused');
@@ -1184,11 +1381,12 @@ function bindEvents() {
 
   // Форма
   $('#subForm').addEventListener('submit', submitSubForm);
-  $('#subDelete').addEventListener('click', () => {
+  $('#subDelete').addEventListener('click', async () => {
     const id = ui.editingId;
     const s = state.subs.find(x => x.id === id);
-    if (s && confirm(`Видалити «${s.name}»?`)) { $('#subDialog').close(); deleteSub(id); }
+    if (s && await ask(`Видалити «${s.name}»?`)) { $('#subDialog').close(); deleteSub(id); haptic.tap(); }
   });
+  $$('dialog').forEach(d => d.addEventListener('close', updateBackButton));
   $$('dialog [data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
   $$('dialog').forEach(d => d.addEventListener('click', e => { if (e.target === d) d.close(); }));
 
@@ -1237,9 +1435,9 @@ function bindEvents() {
   $('#exportBtn').addEventListener('click', exportJSON);
   $('#importInput').addEventListener('change', e => { const f = e.target.files[0]; if (f) importJSON(f); e.target.value = ''; });
   $('#demoBtn').addEventListener('click', addDemo);
-  $('#wipeBtn').addEventListener('click', () => {
-    if (!confirm('Видалити ВСІ підписки та налаштування? Цю дію не можна скасувати.')) return;
-    if (prompt('Для підтвердження введіть: ВИДАЛИТИ') !== 'ВИДАЛИТИ') return;
+  $('#wipeBtn').addEventListener('click', async () => {
+    if (!(await ask('Видалити ВСІ підписки та налаштування?'))) return;
+    if (!(await ask('Точно? Цю дію не можна скасувати.'))) return;
     state = defaultState(); save(); renderAll(); toast('Дані видалено');
   });
 
@@ -1272,9 +1470,9 @@ function shiftMonth(delta) {
 
 /* Екран блокування — обробники (працюють і до розблокування) */
 $('#lockForm').addEventListener('submit', e => { e.preventDefault(); tryUnlock($('#lockInput').value); });
-$('#lockForgot').addEventListener('click', () => {
-  if (!confirm('PIN неможливо відновити — дані зашифровано ним.\n\nСкинути застосунок і видалити ВСІ дані? (Потім можна відновити з резервної копії JSON.)')) return;
-  if (prompt('Для підтвердження введіть: ВИДАЛИТИ') !== 'ВИДАЛИТИ') return;
+$('#lockForgot').addEventListener('click', async () => {
+  if (!(await ask('PIN неможливо відновити, бо дані зашифровано ним. Скинути застосунок і видалити ВСІ дані? Потім їх можна відновити з резервної копії JSON.'))) return;
+  if (!(await ask('Точно видалити всі дані?'))) return;
   localStorage.removeItem(LS_DATA);
   meta.lock = null; meta.failed = 0; meta.lockUntil = 0; saveMeta();
   state = defaultState();

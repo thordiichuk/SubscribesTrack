@@ -12,9 +12,16 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <!-- Telegram Mini App SDK (у звичайному браузері нічого не робить) -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
-    // Тема до першого рендера (без "блимання"). За замовчуванням — світла.
-    try { var m = JSON.parse(localStorage.getItem('subtrack.meta.v1') || '{}'); if (m.themeExplicit && m.theme) document.documentElement.dataset.theme = m.theme; } catch (e) {}
+    // Тема до першого рендера (без "блимання"): власний вибір → тема Telegram → світла.
+    try {
+      var m = JSON.parse(localStorage.getItem('subtrack.meta.v1') || '{}');
+      var w = window.Telegram && window.Telegram.WebApp;
+      if (m.themeExplicit && m.theme) document.documentElement.dataset.theme = m.theme;
+      else if (w && w.initData && w.colorScheme) document.documentElement.dataset.theme = w.colorScheme;
+    } catch (e) {}
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -140,12 +147,14 @@
               <span>Нагадувати за, днів до списання</span>
               <input id="remindDays" type="number" min="0" max="30" class="input">
             </label>
-            <label class="switch-row">
-              <span>Сповіщення браузера</span>
-              <input id="browserNotify" type="checkbox" class="switch">
-            </label>
-            <p id="notifyStatus" class="muted small"></p>
-            <hr>
+            <div id="browserNotifyWrap">
+              <label class="switch-row">
+                <span>Сповіщення браузера</span>
+                <input id="browserNotify" type="checkbox" class="switch">
+              </label>
+              <p id="notifyStatus" class="muted small"></p>
+              <hr>
+            </div>
             <label class="switch-row">
               <span>Telegram-бот</span>
               <input id="tgEnabled" type="checkbox" class="switch">
@@ -162,7 +171,7 @@
               <button id="tgTest" class="btn">Надіслати тест</button>
               <button id="remindNow" class="btn btn-ghost">Перевірити зараз</button>
             </div>
-            <p class="muted small">Створіть бота в @BotFather і напишіть йому будь-що. Chat ID підкаже @userinfobot. Нагадування надсилаються, поки застосунок відкрито (перевірка щогодини).</p>
+            <p id="tgHint" class="muted small"></p>
           </div>
 
           <div class="set-group">

@@ -369,3 +369,8 @@ input[type=date].input { min-width: 0; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ---------- Telegram Mini App ---------- */
+.in-telegram .topbar { padding-top: calc(12px + var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)); }
+.in-telegram .bottom-nav { padding-bottom: calc(2px + var(--tg-safe-area-inset-bottom, 0px)); }
+.in-telegram body { overscroll-behavior: none; }
