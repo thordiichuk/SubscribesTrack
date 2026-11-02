@@ -1,21 +1,24 @@
 <!doctype html>
-<html lang="uk" data-theme="dark">
+<html lang="uk" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>SubsTrack — трекер підписок</title>
+  <title>subtrack</title>
   <meta name="description" content="Особистий трекер і календар підписок та регулярних платежів">
-  <meta name="theme-color" content="#0f1115">
+  <meta name="theme-color" content="#f5f4ef">
   <meta name="robots" content="noindex, nofollow">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <script>
-    // Застосовуємо тему до першого рендера, щоб не було "блимання"
-    try { var m = JSON.parse(localStorage.getItem('subtrack.meta.v1') || '{}'); if (m.theme) document.documentElement.dataset.theme = m.theme; } catch (e) {}
+    // Тема до першого рендера (без "блимання"). За замовчуванням — світла.
+    try { var m = JSON.parse(localStorage.getItem('subtrack.meta.v1') || '{}'); if (m.themeExplicit && m.theme) document.documentElement.dataset.theme = m.theme; } catch (e) {}
   </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -23,10 +26,10 @@
   <!-- ============ Екран блокування ============ -->
   <section id="lockScreen" class="lock" hidden>
     <form id="lockForm" class="lock-card" autocomplete="off">
-      <div class="lock-logo">🔐</div>
-      <h1>SubsTrack</h1>
-      <p class="muted">Введіть PIN-код або пароль</p>
-      <input id="lockInput" type="password" class="input input-lg" placeholder="••••" autocomplete="current-password" required minlength="4">
+      <div class="lock-mark"></div>
+      <h1>subtrack</h1>
+      <p class="muted">Введіть PIN або пароль</p>
+      <input id="lockInput" type="password" class="input input-lg" placeholder="····" autocomplete="current-password" required minlength="4">
       <p id="lockError" class="error" aria-live="polite"></p>
       <button class="btn btn-primary btn-lg btn-block" type="submit">Розблокувати</button>
       <button id="lockForgot" class="btn btn-ghost btn-sm" type="button">Забули PIN?</button>
@@ -36,30 +39,31 @@
   <!-- ============ Застосунок ============ -->
   <div id="app" hidden>
     <header class="topbar">
-      <div class="brand"><span class="brand-logo">◎</span> SubsTrack</div>
+      <div class="brand">subtrack<span class="brand-dot"></span></div>
       <nav class="tabs" aria-label="Розділи">
         <button class="tab" data-view="list">Підписки</button>
         <button class="tab" data-view="calendar">Календар</button>
-        <button class="tab" data-view="stats">Статистика</button>
+        <button class="tab" data-view="stats">Витрати</button>
         <button class="tab" data-view="settings">Налаштування</button>
       </nav>
       <div class="topbar-actions">
-        <button id="themeToggle" class="icon-btn" title="Змінити тему" aria-label="Змінити тему">🌙</button>
-        <button id="lockNow" class="icon-btn" title="Заблокувати" aria-label="Заблокувати" hidden>🔒</button>
+        <button id="themeToggle" class="icon-btn" title="Змінити тему" aria-label="Змінити тему"></button>
+        <button id="lockNow" class="icon-btn" title="Заблокувати" aria-label="Заблокувати" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/></svg>
+        </button>
       </div>
     </header>
 
     <main class="container">
-      <!-- Підсумок -->
-      <section id="summary" class="summary"></section>
+      <section id="summary"></section>
 
       <!-- ===== Список ===== -->
       <section id="view-list" class="view">
         <div id="alertBanner" class="alert" hidden></div>
         <div class="toolbar">
-          <input id="searchInput" type="search" class="input" placeholder="🔍 Пошук за назвою або приміткою">
+          <input id="searchInput" type="search" class="input" placeholder="Пошук">
           <div class="toolbar-row">
-            <select id="statusFilter" class="input">
+            <select id="statusFilter" class="input" aria-label="Статус">
               <option value="all">Усі статуси</option>
               <option value="notcancelled">Крім скасованих</option>
               <option value="active">Активні</option>
@@ -67,12 +71,12 @@
               <option value="cancelling">До скасування</option>
               <option value="cancelled">Скасовані</option>
             </select>
-            <select id="sortSelect" class="input">
-              <option value="date-asc">Дата: найближчі</option>
-              <option value="date-desc">Дата: найпізніші</option>
-              <option value="price-desc">Ціна: дорожчі</option>
-              <option value="price-asc">Ціна: дешевші</option>
-              <option value="name">Назва А→Я</option>
+            <select id="sortSelect" class="input" aria-label="Сортування">
+              <option value="date-asc">За датою ↑</option>
+              <option value="date-desc">За датою ↓</option>
+              <option value="price-desc">Дорожчі</option>
+              <option value="price-asc">Дешевші</option>
+              <option value="name">За назвою</option>
             </select>
           </div>
           <div id="categoryChips" class="chips"></div>
@@ -83,14 +87,18 @@
       <!-- ===== Календар ===== -->
       <section id="view-calendar" class="view" hidden>
         <div class="cal-header">
-          <button id="calPrev" class="icon-btn" aria-label="Попередній місяць">‹</button>
           <div class="cal-title">
             <h2 id="calTitle"></h2>
             <div id="calTotal" class="muted small"></div>
           </div>
-          <button id="calNext" class="icon-btn" aria-label="Наступний місяць">›</button>
+          <button id="calPrev" class="icon-btn" aria-label="Попередній місяць">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <button id="calNext" class="icon-btn" aria-label="Наступний місяць">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
         </div>
-        <button id="calToday" class="btn btn-ghost btn-sm cal-today">Сьогодні</button>
+        <button id="calToday" class="btn btn-ghost btn-sm cal-today">← До сьогодні</button>
         <div class="cal-grid cal-weekdays"></div>
         <div id="calGrid" class="cal-grid"></div>
         <div id="calDay" class="cal-day"></div>
@@ -105,35 +113,35 @@
       <section id="view-settings" class="view" hidden>
         <div class="settings">
 
-          <div class="card">
-            <h3>🎨 Вигляд</h3>
+          <div class="set-group">
+            <div class="eyebrow">Вигляд</div>
             <div class="segmented" id="themeSeg">
-              <button data-theme-set="dark">🌙 Темна</button>
-              <button data-theme-set="light">☀️ Світла</button>
+              <button data-theme-set="light">Світла</button>
+              <button data-theme-set="dark">Темна</button>
             </div>
           </div>
 
-          <div class="card">
-            <h3>💱 Валюта та курси</h3>
+          <div class="set-group">
+            <div class="eyebrow">Валюта</div>
             <label class="field">
-              <span>Основна валюта (для підсумків)</span>
+              <span>Основна валюта для підсумків</span>
               <select id="baseCurrency" class="input"></select>
             </label>
             <div id="ratesList" class="rates"></div>
             <div class="row">
-              <button id="fetchRates" class="btn btn-secondary">↻ Оновити курси онлайн</button>
+              <button id="fetchRates" class="btn">Оновити курси онлайн</button>
               <span id="ratesInfo" class="muted small"></span>
             </div>
           </div>
 
-          <div class="card">
-            <h3>🔔 Нагадування</h3>
+          <div class="set-group">
+            <div class="eyebrow">Нагадування</div>
             <label class="field">
-              <span>Нагадувати за (днів до списання)</span>
+              <span>Нагадувати за, днів до списання</span>
               <input id="remindDays" type="number" min="0" max="30" class="input">
             </label>
             <label class="switch-row">
-              <span>Push-сповіщення браузера</span>
+              <span>Сповіщення браузера</span>
               <input id="browserNotify" type="checkbox" class="switch">
             </label>
             <p id="notifyStatus" class="muted small"></p>
@@ -144,39 +152,39 @@
             </label>
             <label class="field">
               <span>Bot Token</span>
-              <input id="tgToken" type="password" class="input" placeholder="123456789:AA..." autocomplete="off">
+              <input id="tgToken" type="password" class="input" placeholder="123456789:AA…" autocomplete="off">
             </label>
             <label class="field">
               <span>Chat ID</span>
               <input id="tgChat" type="text" class="input" placeholder="123456789" autocomplete="off">
             </label>
             <div class="row">
-              <button id="tgTest" class="btn btn-secondary">Надіслати тест</button>
+              <button id="tgTest" class="btn">Надіслати тест</button>
               <button id="remindNow" class="btn btn-ghost">Перевірити зараз</button>
             </div>
-            <p class="muted small">Створіть бота у <b>@BotFather</b>, надішліть йому будь-яке повідомлення, а Chat ID дізнайтеся у <b>@userinfobot</b>. Нагадування надсилаються, коли застосунок відкрито (перевірка щогодини).</p>
+            <p class="muted small">Створіть бота в @BotFather і напишіть йому будь-що. Chat ID підкаже @userinfobot. Нагадування надсилаються, поки застосунок відкрито (перевірка щогодини).</p>
           </div>
 
-          <div class="card">
-            <h3>🔐 Безпека</h3>
-            <p id="pinStatus" class="muted"></p>
+          <div class="set-group">
+            <div class="eyebrow">Безпека</div>
+            <p id="pinStatus"></p>
             <div class="row">
               <button id="pinSet" class="btn btn-primary">Встановити PIN</button>
               <button id="pinDisable" class="btn btn-danger-ghost">Вимкнути PIN</button>
             </div>
             <label class="field">
-              <span>Автоблокування після бездіяльності (хв, 0 — вимкнено)</span>
+              <span>Автоблокування після бездіяльності, хв (0 — вимкнено)</span>
               <input id="autoLock" type="number" min="0" max="240" class="input">
             </label>
-            <p class="muted small">Коли PIN увімкнено, усі дані у сховищі браузера шифруються (AES-GCM 256, ключ з PIN через PBKDF2). Без PIN відновити їх неможливо — робіть резервні копії.</p>
+            <p class="muted small">З PIN усі дані в браузері зашифровано (AES-GCM 256, ключ — з PIN через PBKDF2). Без PIN їх не відновити, тож робіть резервні копії.</p>
           </div>
 
-          <div class="card">
-            <h3>💾 Дані</h3>
+          <div class="set-group">
+            <div class="eyebrow">Дані</div>
             <div class="row">
-              <button id="exportBtn" class="btn btn-secondary">⬇ Завантажити резервну копію (JSON)</button>
-              <label class="btn btn-secondary">
-                ⬆ Відновити з JSON
+              <button id="exportBtn" class="btn">Завантажити копію (JSON)</button>
+              <label class="btn">
+                Відновити з JSON
                 <input id="importInput" type="file" accept="application/json,.json" hidden>
               </label>
             </div>
@@ -186,20 +194,21 @@
             </div>
           </div>
 
-          <p class="muted small center">SubsTrack · дані зберігаються лише у цьому браузері</p>
+          <p class="muted small footer-note">subtrack · дані зберігаються лише в цьому браузері</p>
         </div>
       </section>
     </main>
 
-    <!-- Кнопка швидкого додавання -->
-    <button id="fab" class="fab" aria-label="Додати підписку"><span>＋</span><b>Додати</b></button>
+    <button id="fab" class="fab" aria-label="Додати підписку">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      <b>Додати</b>
+    </button>
 
-    <!-- Нижня навігація (мобільна) -->
     <nav class="bottom-nav" aria-label="Розділи">
-      <button class="tab" data-view="list"><i>📋</i><span>Список</span></button>
-      <button class="tab" data-view="calendar"><i>📅</i><span>Календар</span></button>
-      <button class="tab" data-view="stats"><i>📊</i><span>Витрати</span></button>
-      <button class="tab" data-view="settings"><i>⚙️</i><span>Опції</span></button>
+      <button class="tab" data-view="list">Список</button>
+      <button class="tab" data-view="calendar">Календар</button>
+      <button class="tab" data-view="stats">Витрати</button>
+      <button class="tab" data-view="settings">Опції</button>
     </nav>
   </div>
 
@@ -208,11 +217,13 @@
     <form id="subForm" novalidate>
       <header class="dialog-head">
         <h2 id="subDialogTitle">Нова підписка</h2>
-        <button type="button" class="icon-btn" data-close aria-label="Закрити">✕</button>
+        <button type="button" class="icon-btn" data-close aria-label="Закрити">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
       </header>
       <div class="dialog-body">
         <label class="field">
-          <span>Назва сервісу *</span>
+          <span>Назва сервісу</span>
           <input name="name" class="input" required maxlength="80" placeholder="Netflix, Spotify, iCloud…" list="nameSuggestions">
           <datalist id="nameSuggestions">
             <option>Netflix</option><option>Spotify</option><option>YouTube Premium</option><option>iCloud+</option>
@@ -221,13 +232,9 @@
             <option>Інтернет</option><option>Мобільний зв'язок</option><option>Оренда</option><option>Спортзал</option>
           </datalist>
         </label>
-        <label class="field">
-          <span>Посилання (сайт / сторінка скасування)</span>
-          <input name="url" class="input" type="url" inputmode="url" placeholder="https://…">
-        </label>
         <div class="grid-2">
           <label class="field">
-            <span>Ціна *</span>
+            <span>Ціна</span>
             <input name="price" class="input" type="number" inputmode="decimal" step="0.01" min="0" required placeholder="0.00">
           </label>
           <label class="field">
@@ -246,7 +253,7 @@
             </select>
           </label>
           <label class="field">
-            <span>Наступне списання *</span>
+            <span>Наступне списання</span>
             <input name="nextDate" class="input" type="date" required>
           </label>
         </div>
@@ -260,6 +267,10 @@
             <select name="status" class="input"></select>
           </label>
         </div>
+        <label class="field">
+          <span>Посилання на сайт або сторінку скасування</span>
+          <input name="url" class="input" type="url" inputmode="url" placeholder="https://…">
+        </label>
         <label class="field">
           <span>Примітка</span>
           <textarea name="note" class="input" rows="2" maxlength="500" placeholder="Спільний акаунт, скасувати до 15 числа, картка Visa…"></textarea>
@@ -279,8 +290,10 @@
   <dialog id="pinDialog" class="dialog dialog-sm">
     <form id="pinForm" autocomplete="off">
       <header class="dialog-head">
-        <h2 id="pinDialogTitle">PIN-код</h2>
-        <button type="button" class="icon-btn" data-close aria-label="Закрити">✕</button>
+        <h2 id="pinDialogTitle">PIN</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Закрити">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
       </header>
       <div class="dialog-body">
         <label class="field" id="pinCurrentWrap">
@@ -289,7 +302,7 @@
         </label>
         <div id="pinNewWrap">
           <label class="field">
-            <span>Новий PIN / пароль (мін. 4 символи)</span>
+            <span>Новий PIN або пароль (мін. 4 символи)</span>
             <input id="pinNew" type="password" class="input" autocomplete="new-password">
           </label>
           <label class="field">

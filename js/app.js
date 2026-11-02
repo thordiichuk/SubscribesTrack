@@ -14,11 +14,11 @@ const MAX_ATTEMPTS = 5;               // після стількох невда�
 const LOCKOUT_MS = 30_000;
 
 const CATEGORIES = {
-  entertainment: { label: 'Розваги',    icon: '🎬', color: '#a78bfa' },
-  work:          { label: 'Робота',     icon: '💼', color: '#60a5fa' },
-  education:     { label: 'Навчання',   icon: '📚', color: '#34d399' },
-  utilities:     { label: 'Комунальні', icon: '🏠', color: '#fbbf24' },
-  other:         { label: 'Інше',       icon: '📦', color: '#f472b6' },
+  entertainment: { label: 'Розваги',    color: '#8b7cf6' },
+  work:          { label: 'Робота',     color: '#3e8ef7' },
+  education:     { label: 'Навчання',   color: '#2eb67d' },
+  utilities:     { label: 'Комунальні', color: '#f2a93b' },
+  other:         { label: 'Інше',       color: '#e66fa0' },
 };
 
 const STATUSES = {
@@ -28,11 +28,13 @@ const STATUSES = {
   cancelled:  'Скасована',
 };
 
+const STATUS_COLORS = { active: 'var(--ok)', paused: 'var(--muted)', cancelling: 'var(--warn)', cancelled: 'var(--danger)' };
+
 const PERIODS = {
   monthly: { label: 'Щомісяця',   short: '/міс' },
   yearly:  { label: 'Щороку',     short: '/рік' },
   weekly:  { label: 'Щотижня',    short: '/тиж' },
-  once:    { label: 'Одноразово', short: 'разово' },
+  once:    { label: 'Одноразово', short: '' },
 };
 
 const CURRENCIES = {
@@ -50,6 +52,7 @@ const DEFAULT_RATES_PLN = { PLN: 1, USD: 3.65, EUR: 4.25, UAH: 0.088, GBP: 4.9, 
 
 const MONTHS = ['січень', 'лютий', 'березень', 'квітень', 'травень', 'червень', 'липень', 'серпень', 'вересень', 'жовтень', 'листопад', 'грудень'];
 const MONTHS_GEN = ['січня', 'лютого', 'березня', 'квітня', 'травня', 'червня', 'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'];
+const MONTHS_SHORT = ['січ', 'лют', 'бер', 'кві', 'тра', 'чер', 'лип', 'сер', 'вер', 'жов', 'лис', 'гру'];
 const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'];
 
 /* ---------------------------------------------------------
@@ -174,10 +177,14 @@ function fmtMoney(v, cur) {
   const n = fmtNum(Math.round(v * 100) / 100);
   return c.prefix ? `${c.symbol}${n}` : `${n} ${c.symbol}`;
 }
+function moneyParts(v, cur) {
+  const c = CURRENCIES[cur] || { symbol: cur };
+  return { n: fmtNum(Math.round(v * 100) / 100), sym: c.symbol };
+}
 function fmtCompact(v, cur) {
   const c = CURRENCIES[cur] || { symbol: cur, prefix: false };
   const n = v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace('.', ',') + 'k' : String(Math.round(v));
-  return c.prefix ? `${c.symbol}${n}` : `${n}${c.symbol}`;
+  return c.prefix ? `${c.symbol}${n}` : n;
 }
 function toBase(amount, cur) {
   const rates = state.settings.rates;
@@ -245,8 +252,10 @@ function normalizeSub(s) {
 
 function loadMeta() {
   try {
-    return { theme: 'dark', view: 'list', lock: null, failed: 0, lockUntil: 0, ...JSON.parse(localStorage.getItem(LS_META) || '{}') };
-  } catch { return { theme: 'dark', view: 'list', lock: null, failed: 0, lockUntil: 0 }; }
+    const m = { theme: 'light', view: 'list', lock: null, failed: 0, lockUntil: 0, ...JSON.parse(localStorage.getItem(LS_META) || '{}') };
+    if (!m.themeExplicit) m.theme = 'light'; // світла тема, доки користувач сам не обере іншу
+    return m;
+  } catch { return { theme: 'light', view: 'list', lock: null, failed: 0, lockUntil: 0 }; }
 }
 function saveMeta() { localStorage.setItem(LS_META, JSON.stringify(meta)); }
 
@@ -280,7 +289,7 @@ function save() {
       }
     } catch (e) {
       console.error(e);
-      toast('⚠️ Не вдалося зберегти дані');
+      toast('Не вдалося зберегти дані');
     }
   });
   return saveChain;
@@ -399,22 +408,25 @@ function resetIdle() {
 /* ---------------------------------------------------------
    Тема та навігація
    --------------------------------------------------------- */
+const ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>';
+const ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>';
+
 function applyTheme() {
-  const theme = meta.theme === 'light' ? 'light' : 'dark';
+  const theme = meta.theme === 'dark' ? 'dark' : 'light';
   document.documentElement.dataset.theme = theme;
-  $('meta[name=theme-color]').setAttribute('content', theme === 'light' ? '#f4f5f9' : '#0f1115');
+  $('meta[name=theme-color]').setAttribute('content', theme === 'light' ? '#f5f4ef' : '#121211');
   const t = $('#themeToggle');
-  if (t) t.textContent = theme === 'light' ? '☀️' : '🌙';
+  if (t) t.innerHTML = theme === 'light' ? ICON_MOON : ICON_SUN;
   $$('#themeSeg button').forEach(b => b.classList.toggle('active', b.dataset.themeSet === theme));
 }
-function setTheme(theme) { meta.theme = theme; saveMeta(); applyTheme(); }
+function setTheme(theme) { meta.theme = theme; meta.themeExplicit = true; saveMeta(); applyTheme(); }
 
 function setView(view) {
   if (!['list', 'calendar', 'stats', 'settings'].includes(view)) view = 'list';
   meta.view = view; saveMeta();
   $$('.view').forEach(v => { v.hidden = v.id !== `view-${view}`; });
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
-  $('#summary').hidden = view === 'settings';
+  $('#summary').hidden = view === 'settings' || view === 'stats';
   $('#fab').hidden = view === 'settings';
   renderView(view);
   window.scrollTo({ top: 0 });
@@ -453,26 +465,16 @@ function renderSummary() {
   const t = totals();
   const next = upcoming(400)[0];
   const in30 = upcoming(30).reduce((a, x) => a + toBase(x.sub.price, x.sub.currency), 0);
+  const m = moneyParts(t.monthly, base);
   $('#summary').innerHTML = `
-    <div class="stat accent">
-      <div class="stat-label">На місяць</div>
-      <div class="stat-value">≈ ${esc(fmtMoney(t.monthly, base))}</div>
-      <div class="stat-sub">${t.count} ${plural(t.count, 'активна', 'активні', 'активних')}</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">На рік</div>
-      <div class="stat-value">≈ ${esc(fmtMoney(t.yearly, base))}</div>
-      <div class="stat-sub">регулярні платежі</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Наступне</div>
-      <div class="stat-value">${next ? esc(next.sub.name) : '—'}</div>
-      <div class="stat-sub">${next ? esc(dueLabel(daysUntil(toISO(next.date)))) + ' · ' + esc(fmtMoney(next.sub.price, next.sub.currency)) : 'немає'}</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">30 днів</div>
-      <div class="stat-value">≈ ${esc(fmtMoney(in30, base))}</div>
-      <div class="stat-sub">прогноз списань</div>
+    <div class="hero">
+      <div class="eyebrow">Щомісяця · ${t.count} ${plural(t.count, 'активна', 'активні', 'активних')}</div>
+      <div class="hero-value"><span class="num">${esc(m.n)}</span><span class="cur">${esc(m.sym)}</span></div>
+      <div class="hero-meta">
+        <div><span>За рік</span><b class="mono">${esc(fmtMoney(t.yearly, base))}</b></div>
+        <div><span>30 днів</span><b class="mono">${esc(fmtMoney(in30, base))}</b></div>
+        <div><span>Далі</span><b>${next ? esc(next.sub.name) + ' · ' + esc(dueLabel(daysUntil(toISO(next.date)))) : '—'}</b></div>
+      </div>
     </div>`;
 }
 
@@ -513,49 +515,49 @@ function renderChips() {
   const counts = {};
   state.subs.forEach(s => { counts[s.category] = (counts[s.category] || 0) + 1; });
   $('#categoryChips').innerHTML =
-    `<button class="chip ${ui.category === 'all' ? 'active' : ''}" data-cat="all">Усі · ${state.subs.length}</button>` +
+    `<button class="chip ${ui.category === 'all' ? 'active' : ''}" data-cat="all">Усі <span class="count">${state.subs.length}</span></button>` +
     Object.entries(CATEGORIES).map(([k, c]) =>
-      `<button class="chip ${ui.category === k ? 'active' : ''}" data-cat="${k}">${c.icon} ${c.label}${counts[k] ? ' · ' + counts[k] : ''}</button>`
+      `<button class="chip ${ui.category === k ? 'active' : ''}" data-cat="${k}"><i class="dot" style="--c:${c.color}"></i>${c.label}${counts[k] ? ` <span class="count">${counts[k]}</span>` : ''}</button>`
     ).join('');
 }
 
-function subCardHTML(s) {
+function subRowHTML(s) {
   const cat = CATEGORIES[s.category];
+  const d = parseDate(s.nextDate);
   const days = daysUntil(s.nextDate);
   const urg = urgencyClass(s);
   const url = safeUrl(s.url);
   const inactive = s.status === 'paused' || s.status === 'cancelled';
-  const dateBadge = s.status === 'cancelled'
-    ? `<span class="badge">📅 ${esc(fmtDate(s.nextDate))}</span>`
-    : `<span class="badge ${urg}">📅 ${esc(fmtDate(s.nextDate))} · ${esc(dueLabel(days))}</span>`;
+  const parts = [
+    `<i class="dot" style="--c:${cat.color}"></i>${cat.label}`,
+    PERIODS[s.period].label.toLowerCase(),
+  ];
+  if (!inactive) parts.push(`<span class="due">${esc(dueLabel(days))}</span>`);
   return `
-  <article class="sub-card ${urg} ${inactive ? 'is-inactive' : ''}" data-id="${esc(s.id)}">
-    <div class="sub-icon" style="--c:${cat.color}">${cat.icon}</div>
-    <div class="sub-main">
-      <div class="sub-top">
-        <div class="sub-name" title="${esc(s.name)}">${esc(s.name)}</div>
-        <div class="sub-price">${esc(fmtMoney(s.price, s.currency))}<small>${PERIODS[s.period].short}</small></div>
+  <article class="item ${urg} ${inactive ? 'is-inactive' : ''}" data-id="${esc(s.id)}" tabindex="0">
+    <div class="date-block"><b>${String(d.getDate()).padStart(2, '0')}</b><span>${MONTHS_SHORT[d.getMonth()]}</span></div>
+    <div class="item-body">
+      <div class="line1">
+        <span class="name" title="${esc(s.name)}">${esc(s.name)}</span>
+        <span class="price">${esc(fmtMoney(s.price, s.currency))}<small>${PERIODS[s.period].short}</small></span>
       </div>
-      <div class="sub-meta">
-        ${dateBadge}
-        <span class="badge st-${s.status}">${STATUSES[s.status]}</span>
-        <span class="badge">${cat.label}</span>
+      <div class="line2">
+        ${parts.join('<span class="sep">·</span>')}
+        ${s.status !== 'active' ? `<span class="tag st-${s.status}">${STATUSES[s.status]}</span>` : ''}
       </div>
-      ${s.note ? `<p class="sub-note">📝 ${esc(s.note)}</p>` : ''}
-    </div>
-    <div class="sub-actions">
-      ${url ? `<a class="btn btn-secondary" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-action="open">↗ Сайт</a>` : ''}
-      ${s.status !== 'cancelled' ? `<button class="btn btn-danger-ghost" data-action="quickcancel">✕ Скасувати</button>` : `<button class="btn btn-secondary" data-action="restore">↺ Відновити</button>`}
-      ${s.status === 'active' ? `<button class="btn btn-ghost" data-action="pause">⏸ Пауза</button>` : ''}
-      ${s.status === 'paused' ? `<button class="btn btn-ghost" data-action="restore">▶ Активувати</button>` : ''}
-      <button class="btn btn-ghost" data-action="edit">✎ Змінити</button>
+      ${s.note ? `<p class="note">${esc(s.note)}</p>` : ''}
+      <div class="acts">
+        ${url ? `<a class="act" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-action="open">Сайт ↗</a>` : ''}
+        ${s.status === 'active' ? `<button class="act" data-action="pause">Пауза</button>` : ''}
+        ${inactive ? `<button class="act" data-action="restore">Відновити</button>` : ''}
+        ${s.status !== 'cancelled' ? `<button class="act danger" data-action="quickcancel">Скасувати${url ? ' ↗' : ''}</button>` : ''}
+      </div>
     </div>
   </article>`;
 }
 
 function renderList() {
   renderChips();
-  // банер з найближчими списаннями
   const days = Number(state.settings.remindDays) || 3;
   const soon = state.subs.filter(s => isCharging(s) && daysUntil(s.nextDate) >= 0 && daysUntil(s.nextDate) <= days)
     .sort((a, b) => a.nextDate.localeCompare(b.nextDate));
@@ -563,20 +565,40 @@ function renderList() {
   if (soon.length) {
     const urgent = soon.some(s => daysUntil(s.nextDate) <= 1);
     banner.className = 'alert' + (urgent ? ' danger' : '');
-    banner.innerHTML = `⚠️ <b>${soon.length} ${plural(soon.length, 'списання', 'списання', 'списань')}</b> найближчим часом: ` +
-      soon.map(s => `${esc(s.name)} (${esc(dueLabel(daysUntil(s.nextDate)))}, ${esc(fmtMoney(s.price, s.currency))})`).join(', ');
+    banner.innerHTML = `<div>Скоро ${plural(soon.length, 'списання', 'списання', 'списань')}: ` +
+      soon.map(s => `<b>${esc(s.name)}</b> ${esc(dueLabel(daysUntil(s.nextDate)))}`).join(', ') + '</div>';
     banner.hidden = false;
   } else banner.hidden = true;
 
   const list = filteredSubs();
   const el = $('#subList');
   if (!state.subs.length) {
-    el.innerHTML = `<div class="empty"><div class="big">🗂️</div><b>Ще немає жодної підписки</b><p>Додайте першу — Netflix, Spotify, інтернет чи оренду.</p><button class="btn btn-primary btn-lg" data-action="add">＋ Додати підписку</button></div>`;
-  } else if (!list.length) {
-    el.innerHTML = `<div class="empty"><div class="big">🔍</div><b>Нічого не знайдено</b><p>Змініть фільтри або пошуковий запит.</p></div>`;
-  } else {
-    el.innerHTML = list.map(subCardHTML).join('');
+    el.innerHTML = `<div class="empty"><div class="empty-mark"></div><h3>Поки порожньо</h3><p>Додайте першу підписку: Netflix, інтернет, оренду…</p><button class="btn btn-primary btn-lg" data-action="add">Додати підписку</button></div>`;
+    return;
   }
+  if (!list.length) {
+    el.innerHTML = `<div class="empty"><h3>Нічого не знайдено</h3><p>Спробуйте інші фільтри.</p></div>`;
+    return;
+  }
+  // Групування: за місяцями (при сортуванні за датою) + окремо неактивні
+  const byDate = ui.sort.startsWith('date');
+  let html = '', lastKey = null;
+  for (const s of list) {
+    const inactive = s.status === 'paused' || s.status === 'cancelled';
+    let key, title;
+    if (inactive) { key = 'inactive'; title = 'Пауза та скасовані'; }
+    else if (byDate) {
+      const d = parseDate(s.nextDate);
+      key = `${d.getFullYear()}-${d.getMonth()}`;
+      title = MONTHS[d.getMonth()] + (d.getFullYear() !== today().getFullYear() ? ' ' + d.getFullYear() : '');
+    } else { key = 'all'; title = null; }
+    if (key !== lastKey) {
+      if (title) html += `<div class="eyebrow group-title">${esc(title)}</div>`;
+      lastKey = key;
+    }
+    html += subRowHTML(s);
+  }
+  el.innerHTML = html;
 }
 
 /* ---------- Календар ---------- */
@@ -606,10 +628,10 @@ function renderCalendar() {
     }
   });
 
-  $('#calTitle').textContent = `${MONTHS[m]} ${y}`;
+  $('#calTitle').innerHTML = `${MONTHS[m]} <span class="yr">${y}</span>`;
   $('#calTotal').textContent = monthCount
     ? `${monthCount} ${plural(monthCount, 'списання', 'списання', 'списань')} · ≈ ${fmtMoney(monthSum, base)}`
-    : 'Немає запланованих списань';
+    : 'Списань немає';
   $('.cal-weekdays').innerHTML = WEEKDAYS.map(w => `<div>${w}</div>`).join('');
 
   if (!ui.calSelected) ui.calSelected = tISO;
@@ -627,8 +649,8 @@ function renderCalendar() {
     const sum = subs.reduce((a, s) => a + toBase(s.price, s.currency), 0);
     html += `<button class="${cls.join(' ')}" data-date="${iso}" aria-label="${d.getDate()} ${MONTHS_GEN[d.getMonth()]}${subs.length ? ', ' + subs.length + ' списань' : ''}">
       <span class="cal-num">${d.getDate()}</span>
-      ${subs.length ? `<span class="cal-dots">${subs.slice(0, 4).map(s => `<i class="cal-dot" style="--c:${CATEGORIES[s.category].color}"></i>`).join('')}</span>
-      <span class="cal-sum">${esc(fmtCompact(sum, base))}</span>` : ''}
+      <span class="cal-dots">${subs.slice(0, 4).map(s => `<i class="cal-dot" style="--c:${CATEGORIES[s.category].color}"></i>`).join('')}</span>
+      ${subs.length ? `<span class="cal-sum">${esc(fmtCompact(sum, base))}</span>` : ''}
     </button>`;
   }
   $('#calGrid').innerHTML = html;
@@ -642,7 +664,7 @@ function renderCalDay(byDay) {
     const d = parseDate(iso);
     subs = state.subs.filter(s => occurrences(s, d, d).length);
   }
-  const head = `<h3>${esc(fmtDate(iso, true))} · ${esc(dueLabel(daysUntil(iso)))}</h3>`;
+  const head = `<h3>${esc(fmtDate(iso))} <span class="muted" style="font-weight:400">· ${esc(dueLabel(daysUntil(iso)))}</span></h3>`;
   if (!subs.length) {
     $('#calDay').innerHTML = head + `<p class="muted">Списань немає.</p>`;
     return;
@@ -650,9 +672,9 @@ function renderCalDay(byDay) {
   $('#calDay').innerHTML = head + subs.map(s => {
     const c = CATEGORIES[s.category];
     return `<div class="cal-item" data-id="${esc(s.id)}">
-      <div class="sub-icon" style="--c:${c.color}">${c.icon}</div>
-      <div class="grow"><b>${esc(s.name)}</b><span class="muted small">${PERIODS[s.period].label} · ${STATUSES[s.status]}</span></div>
-      <b>${esc(fmtMoney(s.price, s.currency))}</b>
+      <i class="dot" style="--c:${c.color}"></i>
+      <div class="grow"><b>${esc(s.name)}</b><span class="muted small">${c.label} · ${PERIODS[s.period].label.toLowerCase()}</span></div>
+      <span class="price">${esc(fmtMoney(s.price, s.currency))}</span>
     </div>`;
   }).join('');
 }
@@ -664,66 +686,49 @@ function renderStats() {
   const byCat = {};
   state.subs.filter(isCharging).forEach(s => { byCat[s.category] = (byCat[s.category] || 0) + monthlyCost(s); });
   const catEntries = Object.entries(CATEGORIES).map(([k, c]) => ({ k, ...c, v: byCat[k] || 0 })).sort((a, b) => b.v - a.v);
-  const maxCat = Math.max(...catEntries.map(c => c.v), 0.0001);
-
-  // conic-gradient для діаграми
-  let acc = 0;
-  const stops = catEntries.filter(c => c.v > 0).map(c => {
-    const from = acc / (t.monthly || 1) * 100; acc += c.v;
-    const to = acc / (t.monthly || 1) * 100;
-    return `${c.color} ${from}% ${to}%`;
-  });
-  const donutBg = stops.length ? `conic-gradient(${stops.join(',')})` : 'var(--bg-elev-2)';
 
   const top = state.subs.filter(isCharging).filter(s => s.period !== 'once')
     .map(s => ({ s, v: monthlyCost(s) })).sort((a, b) => b.v - a.v).slice(0, 6);
-
   const statusCounts = Object.keys(STATUSES).map(k => ({ k, n: state.subs.filter(s => s.status === k).length }));
   const in30 = upcoming(30);
   const in30Sum = in30.reduce((a, x) => a + toBase(x.sub.price, x.sub.currency), 0);
   const onceSum = state.subs.filter(s => s.period === 'once' && isCharging(s) && daysUntil(s.nextDate) >= 0)
     .reduce((a, s) => a + toBase(s.price, s.currency), 0);
   const saved = state.subs.filter(s => s.status === 'cancelled' || s.status === 'paused').reduce((a, s) => a + monthlyCost(s), 0);
-
   const currencies = [...new Set(state.subs.map(s => s.currency))].filter(c => c !== base);
+  const kpi = (v, l) => { const p = moneyParts(v, base); return `<div class="kpi"><div class="v">${esc(p.n)}<small>${esc(p.sym)}</small></div><div class="l">${l}</div></div>`; };
 
   $('#statsContent').innerHTML = `
-  <div class="stats-grid">
-    <div class="card span-2">
-      <h3>💰 Підсумок витрат (${esc(base)})</h3>
-      <div class="big-numbers">
-        <div class="big-number"><div class="v">${esc(fmtMoney(t.monthly, base))}</div><div class="l">на місяць</div></div>
-        <div class="big-number"><div class="v">${esc(fmtMoney(t.yearly, base))}</div><div class="l">на рік</div></div>
-        <div class="big-number"><div class="v">${esc(fmtMoney(in30Sum, base))}</div><div class="l">спишеться за 30 днів (${in30.length})</div></div>
-        <div class="big-number"><div class="v">${esc(fmtMoney(t.monthly / 30.44, base))}</div><div class="l">в середньому за день</div></div>
+    <div class="stat-block">
+      <div class="eyebrow">Витрати · ${esc(base)}</div>
+      <div class="kpis">
+        ${kpi(t.monthly, 'на місяць')}
+        ${kpi(t.yearly, 'на рік')}
+        ${kpi(in30Sum, `найближчі 30 днів · ${in30.length}`)}
+        ${kpi(t.monthly / 30.44, 'в середньому за день')}
       </div>
-      ${onceSum ? `<p class="muted small">+ майбутні разові платежі: <b>${esc(fmtMoney(onceSum, base))}</b> (не входять у місячну суму)</p>` : ''}
-      ${saved ? `<p class="muted small">💡 Економія завдяки паузі/скасуванню: <b>${esc(fmtMoney(saved, base))}</b>/міс</p>` : ''}
-      ${currencies.length ? `<p class="muted small">Конвертація за курсами з налаштувань: ${currencies.map(c => `1 ${c} = ${fmtNum(state.settings.rates[c] || 1)} ${base}`).join(', ')}</p>` : ''}
+      ${onceSum ? `<p class="note-line">Ще ${esc(fmtMoney(onceSum, base))} — майбутні разові платежі (не входять у місячну суму).</p>` : ''}
+      ${saved ? `<p class="note-line">Пауза та скасування економлять <b class="mono">${esc(fmtMoney(saved, base))}</b> щомісяця.</p>` : ''}
     </div>
 
-    <div class="card">
-      <h3>📊 За категоріями (на місяць)</h3>
-      <div class="donut-wrap">
-        <div class="donut" style="background:${donutBg}">
-          <div class="donut-center">${esc(fmtCompact(t.monthly, base))}<small>на місяць</small></div>
-        </div>
-      </div>
-      ${catEntries.map(c => `
-        <div class="bar-row">
-          <div class="bar-head"><span>${c.icon} ${c.label}</span><b>${esc(fmtMoney(c.v, base))} · ${t.monthly ? Math.round(c.v / t.monthly * 100) : 0}%</b></div>
-          <div class="bar"><span style="--c:${c.color};width:${(c.v / maxCat * 100).toFixed(1)}%"></span></div>
-        </div>`).join('')}
+    <div class="stat-block">
+      <div class="eyebrow">За категоріями · на місяць</div>
+      <div class="stack">${catEntries.filter(c => c.v > 0).map(c => `<span style="--c:${c.color};flex-grow:${c.v.toFixed(2)}" title="${c.label}"></span>`).join('')}</div>
+      <ul class="legend">${catEntries.map(c => `
+        <li><i class="dot" style="--c:${c.color}"></i><span class="nm">${c.label}</span><span class="amt">${esc(fmtMoney(c.v, base))}</span><span class="pct">${t.monthly ? Math.round(c.v / t.monthly * 100) : 0}%</span></li>`).join('')}
+      </ul>
     </div>
 
-    <div class="card">
-      <h3>🏆 Найдорожчі (на місяць)</h3>
-      ${top.length ? `<ul class="top-list">${top.map(({ s, v }) => `<li><span>${CATEGORIES[s.category].icon} ${esc(s.name)}</span><b>${esc(fmtMoney(v, base))}</b></li>`).join('')}</ul>` : '<p class="muted">Немає активних підписок.</p>'}
-      <hr>
-      <h3>📌 Статуси</h3>
-      <ul class="top-list">${statusCounts.map(x => `<li><span><span class="badge st-${x.k}">${STATUSES[x.k]}</span></span><b>${x.n}</b></li>`).join('')}</ul>
+    <div class="stat-block">
+      <div class="eyebrow">Найдорожчі · на місяць</div>
+      ${top.length ? `<ul class="legend plain">${top.map(({ s, v }) => `<li><i class="dot" style="--c:${CATEGORIES[s.category].color}"></i><span class="nm">${esc(s.name)}</span><span class="amt">${esc(fmtMoney(v, base))}</span></li>`).join('')}</ul>` : '<p class="muted">Немає активних підписок.</p>'}
     </div>
-  </div>`;
+
+    <div class="stat-block">
+      <div class="eyebrow">Статуси</div>
+      <ul class="legend plain">${statusCounts.map(x => `<li><i class="dot" style="--c:${STATUS_COLORS[x.k]}"></i><span class="nm">${STATUSES[x.k]}</span><span class="amt">${x.n}</span></li>`).join('')}</ul>
+      ${currencies.length ? `<p class="note-line muted">Курси: ${currencies.map(c => `1 ${c} = ${fmtNum(+(state.settings.rates[c] || 1).toFixed(4))} ${base}`).join(' · ')}</p>` : ''}
+    </div>`;
 }
 
 /* ---------- Налаштування ---------- */
@@ -743,12 +748,12 @@ function renderSettings() {
   $('#notifyStatus').textContent = !('Notification' in window)
     ? 'Цей браузер не підтримує сповіщення.'
     : Notification.permission === 'denied' ? 'Сповіщення заблоковано в налаштуваннях браузера.'
-      : Notification.permission === 'granted' ? 'Дозвіл надано ✓' : 'Потрібен дозвіл браузера.';
+      : Notification.permission === 'granted' ? 'Дозвіл надано.' : 'Потрібен дозвіл браузера.';
   $('#tgEnabled').checked = !!st.tg.enabled;
   $('#tgToken').value = st.tg.token || '';
   $('#tgChat').value = st.tg.chatId || '';
   $('#autoLock').value = st.autoLockMin;
-  $('#pinStatus').innerHTML = meta.lock ? '✅ PIN увімкнено, дані зашифровано.' : '⚠️ PIN вимкнено — будь-хто з доступом до браузера бачить ваші підписки.';
+  $('#pinStatus').textContent = meta.lock ? 'PIN увімкнено, дані зашифровано.' : 'PIN вимкнено: будь-хто з доступом до браузера бачить ваші підписки.';
   $('#pinSet').textContent = meta.lock ? 'Змінити PIN' : 'Встановити PIN';
   $('#pinDisable').hidden = !meta.lock;
   $('#autoLock').closest('.field').hidden = !meta.lock;
@@ -769,8 +774,8 @@ function openSubForm(id = null, preset = {}) {
   $('#subDialogTitle').textContent = sub ? 'Редагувати підписку' : 'Нова підписка';
   $('#subDelete').hidden = !sub;
   $('#formError').textContent = '';
-  fillSelect(form.currency, Object.entries(CURRENCIES).map(([k, c]) => [k, `${c.symbol} ${k}`]));
-  fillSelect(form.category, Object.entries(CATEGORIES).map(([k, c]) => [k, `${c.icon} ${c.label}`]));
+  fillSelect(form.currency, Object.entries(CURRENCIES).map(([k, c]) => [k, `${k} · ${c.symbol}`]));
+  fillSelect(form.category, Object.entries(CATEGORIES).map(([k, c]) => [k, c.label]));
   fillSelect(form.status, Object.entries(STATUSES));
   const v = sub || {
     name: '', url: '', price: '', currency: state.settings.baseCurrency, period: 'monthly',
@@ -813,10 +818,10 @@ function submitSubForm(e) {
   if (ui.editingId) {
     const s = state.subs.find(x => x.id === ui.editingId);
     Object.assign(s, data);
-    toast('✓ Збережено');
+    toast('Збережено');
   } else {
     state.subs.push(normalizeSub({ ...data, id: uid(), createdAt: new Date().toISOString() }));
-    toast('✓ Підписку додано');
+    toast('Підписку додано');
   }
   rollForward();
   save();
@@ -884,22 +889,22 @@ async function checkReminders(force = false) {
   if (canBrowser) {
     for (const { s, d } of items) {
       try {
-        await showBrowserNotification(`💳 ${s.name} — ${dueLabel(d)}`, `${fmtMoney(s.price, s.currency)} · ${fmtDate(s.nextDate)}${s.note ? '\n' + s.note : ''}`, `${s.id}|${s.nextDate}`);
+        await showBrowserNotification(`${s.name} — ${dueLabel(d)}`, `${fmtMoney(s.price, s.currency)} · ${fmtDate(s.nextDate)}${s.note ? '\n' + s.note : ''}`, `${s.id}|${s.nextDate}`);
         ok = true;
       } catch (e) { console.warn(e); }
     }
   }
   if (canTg) {
-    const text = '🔔 <b>Нагадування про списання</b>\n\n' + items.map(({ s, d }) =>
+    const text = '<b>Нагадування про списання</b>\n\n' + items.map(({ s, d }) =>
       `• <b>${esc(s.name)}</b> — ${esc(fmtMoney(s.price, s.currency))}, ${esc(dueLabel(d))} (${esc(fmtDate(s.nextDate))})` +
       (s.note ? `\n   <i>${esc(s.note)}</i>` : '') + (safeUrl(s.url) ? `\n   ${esc(safeUrl(s.url))}` : '')
     ).join('\n');
-    try { await sendTelegram(text); ok = true; } catch (e) { console.warn(e); toast('⚠️ Telegram: ' + e.message); }
+    try { await sendTelegram(text); ok = true; } catch (e) { console.warn(e); toast('Telegram: ' + e.message); }
   }
   if (ok) {
     items.forEach(({ s }) => { state.notified[`${s.id}|${s.nextDate}`] = Date.now(); });
     save();
-    if (force) toast('✓ Нагадування надіслано');
+    if (force) toast('Нагадування надіслано');
   }
 }
 
@@ -949,9 +954,9 @@ async function fetchRates() {
     state.settings.rates[base] = 1;
     state.settings.ratesUpdated = new Date().toISOString();
     save(); renderSettings(); renderSummary();
-    toast('✓ Курси оновлено');
+    toast('Курси оновлено');
   } catch (e) {
-    toast('⚠️ Не вдалося оновити курси: ' + e.message);
+    toast('Не вдалося оновити курси: ' + e.message);
   } finally {
     btn.disabled = false; btn.textContent = '↻ Оновити курси онлайн';
   }
@@ -1018,7 +1023,7 @@ async function submitPin(e) {
     $('#pinDialog').close();
     renderAll();
     resetIdle();
-    toast(pinMode === 'set' ? '🔐 PIN встановлено, дані зашифровано' : '🔐 PIN змінено');
+    toast(pinMode === 'set' ? 'PIN встановлено, дані зашифровано' : 'PIN змінено');
   } finally {
     submitBtn.disabled = false;
   }
@@ -1029,7 +1034,7 @@ async function submitPin(e) {
    --------------------------------------------------------- */
 function exportJSON() {
   const payload = {
-    app: 'SubsTrack', version: 1, exportedAt: new Date().toISOString(),
+    app: 'subtrack', version: 1, exportedAt: new Date().toISOString(),
     data: { ...state, notified: {} },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1038,7 +1043,7 @@ function exportJSON() {
   a.download = `substrack-backup-${toISO(today())}.json`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  toast('✓ Резервну копію завантажено');
+  toast('Резервну копію завантажено');
 }
 
 async function importJSON(file) {
@@ -1056,9 +1061,9 @@ async function importJSON(file) {
       incoming.subs.forEach(s => { if (ids.has(s.id)) s.id = uid(); state.subs.push(s); });
     }
     rollForward(); await save(); renderAll();
-    toast(`✓ Імпортовано: ${n}`);
+    toast(`Імпортовано: ${n}`);
   } catch (e) {
-    toast('⚠️ Помилка імпорту: ' + e.message);
+    toast('Помилка імпорту: ' + e.message);
   }
 }
 
@@ -1077,7 +1082,7 @@ function addDemo() {
   ];
   demo.forEach(x => state.subs.push(normalizeSub({ status: 'active', ...x })));
   save(); renderAll();
-  toast('✓ Демо-дані додано');
+  toast('Демо-дані додано');
 }
 
 /* ---------------------------------------------------------
@@ -1108,7 +1113,7 @@ function registerSW() {
 function bindEvents() {
   // Навігація
   $$('.tab').forEach(t => t.addEventListener('click', () => setView(t.dataset.view)));
-  $('#themeToggle').addEventListener('click', () => setTheme(meta.theme === 'light' ? 'dark' : 'light'));
+  $('#themeToggle').addEventListener('click', () => setTheme(meta.theme === 'dark' ? 'light' : 'dark'));
   $$('#themeSeg button').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.themeSet)));
   $('#lockNow').addEventListener('click', lockNow);
   $('#fab').addEventListener('click', () => openSubForm(null, meta.view === 'calendar' && ui.calSelected ? { nextDate: ui.calSelected } : {}));
@@ -1125,7 +1130,7 @@ function bindEvents() {
   // Список підписок (делегування)
   $('#subList').addEventListener('click', e => {
     const actionEl = e.target.closest('[data-action]');
-    const card = e.target.closest('.sub-card');
+    const card = e.target.closest('.item');
     const action = actionEl?.dataset.action;
     if (action === 'add') return openSubForm();
     if (!card) return;
@@ -1143,6 +1148,10 @@ function bindEvents() {
       case 'restore': return setStatus(id, 'active');
       default: return openSubForm(id);
     }
+  });
+
+  $('#subList').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.classList.contains('item')) openSubForm(e.target.dataset.id);
   });
 
   // Календар
@@ -1202,7 +1211,7 @@ function bindEvents() {
       if (perm !== 'granted') { e.target.checked = false; state.settings.browserNotify = false; save(); renderSettings(); return toast('Дозвіл не надано'); }
       state.settings.browserNotify = true;
       save(); renderSettings();
-      showBrowserNotification('SubsTrack', 'Сповіщення увімкнено ✓', 'test').catch(() => {});
+      showBrowserNotification('subtrack', 'Сповіщення увімкнено', 'test').catch(() => {});
     } else {
       state.settings.browserNotify = false; save(); renderSettings();
     }
@@ -1214,8 +1223,8 @@ function bindEvents() {
   ['#tgEnabled', '#tgToken', '#tgChat'].forEach(s => $(s).addEventListener('change', saveTg));
   $('#tgTest').addEventListener('click', async () => {
     saveTg();
-    try { await sendTelegram('✅ SubsTrack: тестове повідомлення. Нагадування працюють!'); toast('✓ Повідомлення надіслано'); }
-    catch (e) { toast('⚠️ ' + e.message); }
+    try { await sendTelegram('subtrack: тестове повідомлення. Нагадування працюють.'); toast('Повідомлення надіслано'); }
+    catch (e) { toast('' + e.message); }
   });
   $('#remindNow').addEventListener('click', () => checkReminders(true));
   $('#autoLock').addEventListener('change', e => {

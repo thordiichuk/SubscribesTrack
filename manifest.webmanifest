@@ -1,13 +1,13 @@
 {
-  "name": "SubsTrack — трекер підписок",
-  "short_name": "SubsTrack",
+  "name": "subtrack — трекер підписок",
+  "short_name": "subtrack",
   "description": "Особистий трекер і календар підписок та регулярних платежів",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0f1115",
-  "theme_color": "#0f1115",
+  "background_color": "#f5f4ef",
+  "theme_color": "#f5f4ef",
   "lang": "uk",
   "icons": [
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" },
